@@ -1,150 +1,115 @@
-## 🧠 Universal AI Agent
+# 🧠 Universal AI Agent (Productoo P4)
 
-Multifunkční AI agent postavený na Langchainu, kombinující více nástrojů: JIRA retriever, webové vyhledávání a vektorové znalostní úloiště (RAG).
-
-🌟 **Cíl**: Pomáhat s výzkumem, analýzou konkurence, správou roadmapy a návrhy v oblasti Product Managementu.
+*Conversational assistant for product managers, analysts and engineers working on Productoo’s P4 manufacturing suite.*
 
 ---
 
-## 📌 Funkcionalita
+## ✨ What it does now
 
-Tento agent umožňuje:
-
-* ✅ Vyhledávat informace na internetu (DuckDuckGo, Wikipedia – později Tavily).
-* ✅ Ukládat výstupy do `.txt` souborů.
-* ✅ Získávat tikety a popisy funkcí z JIRA API.
-* ✅ Dotazovat se na interní znalosti uložené ve vektorové databázi (RAG).
-* 🔄 Průběžně budovat znalostní základnu pomocí RAG, s možností zpětého ukládání výsledků dotazů.
-* 🔄 Automaticky doplňovat znalosti z externích nástrojů do vektorového úloiště.
-* 🔄 Detekovat duplicitní nebo zastaralé informace ve znalostní bázi a průběžně je čistit.
-
----
-
-## 🧱 Architektura
-
-```
-            [User Prompt]
-                 ↓
-          [Langchain Agent]
-                 ↓
- ┌────────────┌────────────┌────────────┍
- │  RAG Tool  │  Web Tool  │ JIRA Tool  │
- └────────────────────────────────────────────┘
-      ↓              ↓           ↓
- Vector DB      Tavily Search   JIRA API
- (Chroma)         (planned)     (ready)
-```
-
-Agent vybírá vhodný nástroj na základě popisu (`Tool.description`) a relevance dotazu. Kombinuje výsledky, pokud je to potřeba.
+| Category                      | Status          | Details                                                                                                                 |
+| ----------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Conversational interface**  | **✅**           | CLI (`main.py`) **and** lightweight Gradio UI (`ui.py`).                                                                |
+| **Knowledge retrieval (RAG)** | **✅**           | Chroma vector‑store (`rag_chroma_db/`) continuously enriched with every Q\&A turn.                                      |
+| **Web search**                | **✅**           | DuckDuckGo (`searchWeb`) & Wikipedia snippet tool.                                                                      |
+| **Semantic web search**       | **β**           | Tavily semantic search if `TAVILY_API_KEY` is present.                                                                  |
+| **Jira integration**          | **✅**           | `jira_ideas_retriever` – lists *Idea* issues matching an optional keyword.                                              |
+| **File output**               | **✅**           | `save_text_to_file` stores each answer in a *new* timestamped file under `./output/`. Visible & downloadable in the UI. |
+| **Confluence loader**         | **✅ (offline)** | `rag_confluence_loader.py` indexes Confluence pages into RAG (manual run).                                              |
+| **Continuous learning**       | **↺**           | Every chat exchange is appended to the vector store for long‑term memory.                                               |
 
 ---
 
-## 📂 Struktura projektu
+## 🔎 Available tools
+
+| Tool name              | Purpose                                                                                   |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| `searchWeb`            | Quick DuckDuckGo search (definitions, news, blogs).                                       |
+| `wikipedia_query`      | Short summary from Wikipedia.                                                             |
+| `rag_retriever`        | Fetch up to 4 most relevant chunks from the internal vector store (docs, roadmap, chats). |
+| `jira_ideas_retriever` | List *Ideas* from Jira project **P4**; optional `keyword` filter.                         |
+| `tavily_search`        | LLM‑powered semantic web search (requires `TAVILY_API_KEY`).                              |
+| `save_text_to_file`    | Persist any text to `output/…` (timestamped).                                             |
+
+> **Planned tool** – `jira_issue_detail`: fetch a **single** Jira issue by key (e.g. `P4‑1234`) with full description, acceptance criteria, subtasks & comments.
+> *Benefit:* quick deep‑dives, faster duplicate detection.
+
+---
+
+## 🏗 Architecture overview
 
 ```
-📆 universalagent/
-├── .env                    # API klíče (OpenAI, JIRA)
-├── .gitignore
-├── main.py                # Hlavní běh agenta
-├── tools.py               # Definice nástrojů (search, RAG, JIRA, save)
-├── rag_vectorstore.py     # Indexace dokumentů do RAG
-├── jira_retriever.py      # JIRA REST API přístup
-├── sample_docs/           # Vstupní data pro testování
-├── rag_chroma_db/         # Vektorové úloiště (ignored in git)
-└── requirements.txt       # Python závislosti
+┌───────────────┐     user query / feedback
+│   Gradio UI   │  ◀──────────────────────┐
+└──────┬────────┘                          │
+       │ HTTP                             │
+┌──────▼────────┐     internal call        │
+│  LangChain    │  ──▶  Tool Router  ──▶───┘
+│   Agent       │          │
+└───────────────┘          ▼
+   │     │    │    structured/tool calls
+   │     │    │
+   │     │    └─▶ Jira API (ideas / issue‑detail)
+   │     └────────▶ Web search (DuckDuckGo / Tavily)
+   └──────────────▶ RAG vector store (Chroma)
 ```
 
 ---
 
-## ⚙️ Instalace
+## 🚀 Quick start
 
 ```bash
+# 1. Install deps (create venv beforehand)
 pip install -r requirements.txt
+
+# 2. Configure API keys (.env)
+cp .env.example .env  # fill in OPENAI_API_KEY, JIRA_AUTH_TOKEN …
+
+# 3a. Run conversational CLI
+python main.py
+
+# 3b. Or launch local web UI
+python ui.py  # opens http://127.0.0.1:7860
 ```
 
----
-
-## 🔐 Nastavení `.env`
+### Required environment variables
 
 ```dotenv
-# OpenAI API
-OPENAI_API_KEY="..."
-
-# JIRA přístup
-JIRA_URL="https://your-domain.atlassian.net"
-JIRA_USER="your-email@example.com"
-JIRA_AUTH_TOKEN="your-jira-api-token"
-JIRA_JQL="project = P4 ORDER BY created DESC"
-JIRA_MAX_RESULTS=50
+OPENAI_API_KEY="sk‑…"
+JIRA_AUTH_TOKEN="atlassian‑…"
+TAVILY_API_KEY=""           # optional
 ```
 
 ---
 
-## 🚀 Spuštění agenta
-
-```bash
-python main.py
-```
-
-Agent se zeptá na dotaz a automaticky vybere nástroje. Např.:
+## 🗂 Project layout
 
 ```
-What are our main competitors in the CMMS market?
-```
-
----
-
-## 🛠️ Integrované nástroje
-
-| Nástroj             | Popis                                      |
-| ------------------- | ------------------------------------------ |
-| `searchWeb`         | DuckDuckGo (nahrazováno Tavily MCP)        |
-| `Wikipedia`         | Shrnutí tématu                             |
-| `rag_retriever`     | Vyhledávání ve znalostní bázi (Chroma RAG) |
-| `jira_retriever`    | Přístup na JIRA (zatím samostatně)         |
-| `save_text_to_file` | Uložení výstupu do souboru                 |
-
----
-
-## 🔜 Plánované vylepšení
-
-1. **Tavily MCP**: výměna DuckDuckGo za pokročilejší webové vyhledávání.
-2. **JIRA Tool**: napojení `jira_retriever.py` jako Langchain Tool.
-3. **Ukládání znalostí do RAG**: agent automaticky přidá nové poznatky do Chroma, pokud nejsou duplicitní.
-4. **Detekce duplicity a expirovaných informací**: pomocí hashování textu, času, nebo vekt. vzdálenosti.
-5. **Roadmap asistent**: kombinace JIRA výstupů + RAG + konkurence = návrhy co rozšířit, přidat nebo upřednostnit.
-6. **IdeaRefiner**: AI doplňování a konkretizace nápadů v roadmapě.
-
----
-
-## 🧪 Testovací dotazy
-
-```
-🔍 What are the challenges in predictive maintenance?
-📌 Summarize recent JIRA issues related to Process Builder.
-📚 What data sources does CMMS provide?
-🤡 Suggest roadmap ideas based on current market competition.
+📁 universalagent/
+├── main.py                # conversational loop
+├── tools.py               # LangChain Tools (search, Jira, save, …)
+├── ui.py                  # Gradio front‑end
+├── jira_retriever.py      # low‑level Jira REST helper
+├── rag_confluence_loader.py  # import Confluence pages into RAG
+├── rag_vectorstore.py     # bulk‑import local docs into RAG
+├── output/                # timestamped txt exports (git‑ignored)
+└── rag_chroma_db/         # vector DB (git‑ignored)
 ```
 
 ---
 
-## ✍️ Autor
+## 🛣 Next steps (roadmap)
 
-**Tomáš Ventruba**
-Produktový manažer a vývojář
-Specializace: aplikace AI v průmyslovém softwaru
+| Priority | Item                                     | Rationale                                                                               |
+| -------- | ---------------------------------------- | --------------------------------------------------------------------------------------- |
+| **⬆**    | **`jira_issue_detail` Tool**             | Fetch full Jira issue by key; enable deep context for duplicates & acceptance criteria. |
+| **⬆**    | **Auth & multi‑user UI**                 | OIDC (Google / Azure) + per‑user memory; share publicly via FastAPI mount.              |
+| **⬆**    | **Dockerfile & CI**                      | Reproducible deployments; CI lint + tests.                                              |
+|  —       | Confluence incremental sync              | Schedule nightly run; mark removed pages as archived in RAG.                            |
+|  —       | Auto‑summarise fresh Jira tickets to RAG | “Chronicle” new issues daily for fast retrieval.                                        |
+|  —       | Duplicate‑idea detector                  | Hash & embedding similarity across Jira Ideas.                                          |
+|  —       | KPI dashboard                            | Track solved tickets, average cycle‑time, top requested features.                       |
+|  —       | Slack/Teams integration                  | Ask the agent directly from chat; post daily digest.                                    |
+|  —       | Unit & integration tests                 | pytest + Playwright for UI workflows.                                                   |
+|  —       | Production-grade logging & tracing       | OpenTelemetry, structured JSON logs.                                                    |
 
----
-
-## ✅ Roadmapa
-
-| Úloh                                    | Stav      |
-| --------------------------------------- | --------- |
-| ✅ Základní agent s RAG                  | Hotovo    |
-| 🔄 Napojení JIRA do agenta              | Probíhá   |
-| 🔄 Tavily web search                    | Plánováno |
-| 🔄 Autonomní ukládání poznatků do RAG   | Plánováno |
-| 🔄 Deduplication a cleaning ve vekt. DB | Plánováno |
-| 🔄 Rozšiřování roadmapy pomocí AI       | Plánováno |
-
-test
+Contributions & ideas welcome – open an issue or ping **@tomas.ventruba**.
