@@ -30,19 +30,18 @@ if hasattr(openai, "telemetry") and hasattr(openai.telemetry, "TelemetryClient")
 # ───────────────────────── Helper: Robust TXT Saver ───────────────────────────
 OUTPUT_DIR = Path("output"); OUTPUT_DIR.mkdir(exist_ok=True)
 
-def _save_to_txt(data: str, filename: str | None = None) -> str:
-    """Append *data* to a dated txt file inside ./output and return the path."""
-    if not filename:
-        filename = datetime.now().strftime("research_%Y-%m-%d.txt")
-    path = OUTPUT_DIR / filename
+def _save_to_txt(data: str, prefix: str = "research") -> str:
+    """
+    Uloží *data* do nového TXT souboru v ./output a vrátí textovou hlášku.
+    Název souboru = <prefix>_YYYY-MM-DD_HH-MM-SS.txt
+    """
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename  = f"{prefix}_{timestamp}.txt"
+    path      = OUTPUT_DIR / filename
 
-    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    fragment = f"--- Entry @ {stamp} ---\n{data}\n\n"
+    path.write_text(data, encoding="utf-8")
 
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(fragment)
-
-    return f"✅ Data saved to {path.as_posix()}""✅ Data saved to {path.as_posix()}"
+    return f"✅ Data saved to {path.as_posix()}"
 
 save_tool = Tool(
     name="save_text_to_file",
