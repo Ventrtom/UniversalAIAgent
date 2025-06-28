@@ -1,0 +1,10 @@
+{
+  "jira": {
+    "url":  "https://productoo.atlassian.net/",
+    "user": "tomas.ventruba@productoo.com",
+    "jql":   "project = P4 ORDER BY created DESC",
+    "jira_project_key": "P4",
+    "maxResults": 50,
+    "roadmap_url": "https://roadmap.productoo.com/p4/Working-version/"
+  }
+}

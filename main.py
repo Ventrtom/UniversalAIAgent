@@ -5,18 +5,16 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain.agents import create_tool_calling_agent, AgentExecutor
-from tools import search_tool, wiki_tool, save_tool, rag_tool
+from tools import search_tool, wiki_tool, save_tool, rag_tool, jira_ideas
 import os
 import openai
 
 load_dotenv()
+tools = [search_tool, wiki_tool, save_tool, rag_tool, jira_ideas]
 
 os.environ["OPENAI_TELEMETRY"] = "0"
 if hasattr(openai, "telemetry") and hasattr(openai.telemetry, "TelemetryClient"):
     openai.telemetry.TelemetryClient.capture = lambda *args, **kwargs: None
-
-
-tools = [search_tool, wiki_tool, save_tool, rag_tool]
 
 class ResearchResponse(BaseModel):
     topic: str

@@ -1,7 +1,8 @@
 from langchain_community.tools import WikipediaQueryRun, DuckDuckGoSearchRun
 from langchain_community.utilities import WikipediaAPIWrapper
-from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
+from jira_retriever import fetch_jira_issues
+from langchain_chroma import Chroma
 from langchain.tools import Tool
 from datetime import datetime
 import openai
@@ -48,4 +49,16 @@ rag_tool = Tool(
     name="rag_retriever",
     func=lambda q: "\n\n".join([doc.page_content for doc in retriever.invoke(q)]),
     description="Získá relevantní informace z interní dokumentace pomocí RAG. Použij, pokud dotaz souvisí s tématy jako predictive maintenance, CMMS, atd."
+)
+
+
+jira_ideas = Tool(
+    name="jira_ideas_retriever",
+    func=lambda _: "\n\n".join(
+        f"{iss['key']} | {iss['status']} | {iss['summary']}\n{iss['description'] or '- žádný popis -'}"
+        for iss in fetch_jira_issues()
+    ),
+    description=(
+        "Načte z JIRA přesně všechny issue podle JQL z config.json (project = P4 ORDER BY created DESC) a vrátí key, status, summary a description."
+    ),
 )
