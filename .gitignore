@@ -16,3 +16,5 @@ venv/
 
 # Vector db
 rag_chroma_db/
+
+output/
