@@ -1,9 +1,16 @@
 from langchain_community.tools import WikipediaQueryRun, DuckDuckGoSearchRun
 from langchain_community.utilities import WikipediaAPIWrapper
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 from langchain.tools import Tool
 from datetime import datetime
+import openai
+import os
+
+os.environ["OPENAI_TELEMETRY"] = "0"
+if hasattr(openai, "telemetry") and hasattr(openai.telemetry, "TelemetryClient"):
+    openai.telemetry.TelemetryClient.capture = lambda *args, **kwargs: None
+
 
 def save_to_txt(data: str, filename: str = "research_output.txt"):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -39,6 +46,6 @@ retriever = Chroma(
 
 rag_tool = Tool(
     name="rag_retriever",
-    func=lambda q: "\n\n".join([doc.page_content for doc in retriever.get_relevant_documents(q)]),
+    func=lambda q: "\n\n".join([doc.page_content for doc in retriever.invoke(q)]),
     description="Získá relevantní informace z interní dokumentace pomocí RAG. Použij, pokud dotaz souvisí s tématy jako predictive maintenance, CMMS, atd."
 )

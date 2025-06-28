@@ -1,8 +1,9 @@
-langchain
+langchain>=0.2.9,<1.0
 wikipedia
 langchain-community
 langchain-openai
 langchain-anthropic
+langchain-chroma
 python-dotenv
 pydantic
 duckduckgo-search

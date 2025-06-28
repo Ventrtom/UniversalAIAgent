@@ -1,5 +1,5 @@
 from langchain.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain.document_loaders import DirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import os
@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 os.environ["OPENAI_TELEMETRY"] = "0"
 import openai
 if hasattr(openai, "telemetry") and hasattr(openai.telemetry, "TelemetryClient"):
-    openai.telemetry.TelemetryClient.capture = lambda self, *args, **kwargs: None
+    openai.telemetry.TelemetryClient.capture = lambda *args, **kwargs: None
 
 load_dotenv()
 
