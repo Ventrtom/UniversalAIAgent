@@ -9,3 +9,4 @@ pydantic
 duckduckgo-search
 tavily-python
 atlassian-python-api
+gradio
