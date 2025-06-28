@@ -8,3 +8,4 @@ python-dotenv
 pydantic
 duckduckgo-search
 tavily-python
+atlassian-python-api

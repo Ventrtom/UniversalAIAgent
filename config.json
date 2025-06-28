@@ -6,5 +6,17 @@
     "jira_project_key": "P4",
     "maxResults": 50,
     "roadmap_url": "https://roadmap.productoo.com/p4/Working-version/"
+  },
+    "confluence": {
+        "base_url": "https://productoo.atlassian.net",
+        "user": "tomas.ventruba@productoo.com",
+        "spaces": {
+            "documentation": "PD",
+            "roadmap": "PD"
+        },
+        "ancestor_ids": [
+            "677183489",
+            "8847368"
+        ]
   }
 }
