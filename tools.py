@@ -4,6 +4,7 @@ from langchain_openai import OpenAIEmbeddings
 from jira_retriever import fetch_jira_issues
 from langchain_chroma import Chroma
 from langchain.tools import Tool
+from tavily import TavilyClient
 from datetime import datetime
 import openai
 import os
@@ -61,4 +62,16 @@ jira_ideas = Tool(
     description=(
         "Načte z JIRA přesně všechny issue podle JQL z config.json (project = P4 ORDER BY created DESC) a vrátí key, status, summary a description."
     ),
+)
+
+client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+def tavily_search(query: str) -> str:
+    result = client.search(query=query, max_results=5)
+    sources = [f"- {r['url']}: {r['content'][:500]}" for r in result['results']]
+    return "\n".join(sources)
+
+tavily_tool = Tool(
+    name="tavily_search",
+    func=tavily_search,
+    description="Použij pro pokročilé webové vyhledávání. Vhodné pro získání informací z internetu, článků, dokumentace, novinek."
 )
