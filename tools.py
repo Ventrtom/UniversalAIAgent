@@ -11,6 +11,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+from enum import Enum
 import openai
 from pydantic import BaseModel, Field
 from langchain.tools import Tool, StructuredTool
@@ -474,6 +475,95 @@ jira_duplicates = StructuredTool.from_function(
     args_schema=DuplicateIdeasInput,
 )
 
+# ────────────────────── Idea/Epic/User-Story generator ────────────────────────
+
+class SpecType(str, Enum):
+    idea = "idea"
+    epic = "epic"
+    user_story = "user_story"
+
+
+class SpecGenerationInput(BaseModel):
+    """Schema for `spec_writer_tool`."""
+
+    type: SpecType = Field(
+        ...,
+        description="Target artefact type: 'idea' | 'epic' | 'user_story'.",
+    )
+    title: str = Field(
+        ...,
+        description="Short one-line headline or summary describing the request.",
+    )
+    context: str | None = Field(
+        default=None,
+        description=(
+            "Optional extra background, constraints, links, KPIs, etc. "
+            "Leave empty if not needed."
+        ),
+    )
+
+
+def _generate_spec(type: SpecType, title: str, context: str | None = None) -> str:
+    """
+    Turn a brief headline into a fully-fledged Idea / Epic / User Story draft
+    in Markdown, following Productoo P4 conventions.
+    """
+    # local import avoids heavyweight initialisation at module load
+    from langchain_openai import ChatOpenAI
+    from langchain_core.prompts import ChatPromptTemplate
+
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.25)
+
+    system_msg = (
+        "You are a senior product manager for a manufacturing software suite (P4). "
+        "Generate a detailed {kind} specification in clear, business-oriented English. "
+        "Follow these section requirements:\n"
+        "• **IDEA**  → Problem - Current Impact - Proposed Value - Leading Metrics\n"
+        "• **EPIC**  → Business Goal - Description - Outcome Hypothesis - Milestones\n"
+        "• **USER STORY** → ‘As a <role> I want <capability> so that <benefit>’ "
+        "  plus bullet-listed Acceptance Criteria in Given/When/Then form\n"
+        "Output MUST be valid Markdown."
+    )
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system_msg),
+            ("human", "TITLE: {title}\n\n{ctx}"),
+        ]
+    ).partial(kind=type.value.upper())
+
+    return llm.invoke(
+        prompt.format_prompt(title=title.strip(), ctx=context or "").to_messages()
+    ).content
+
+
+spec_writer_tool = StructuredTool.from_function(
+    func=_generate_spec,
+    name="spec_writer_tool",
+    description=(
+        """
+        Purpose
+        -------
+        Draft a complete **Idea**, **Epic**, or **User Story** document (Markdown)
+        from a short headline plus optional background.  Ideal for quickly seeding
+        Jira items or product docs.
+
+        Parameters
+        ----------
+        type   : 'idea' | 'epic' | 'user_story'  – output template to follow.
+        title  : str  (required)                 – one-line headline / summary.
+        context: str  (optional)                 – any extra info, constraints, KPIs.
+
+        Returns
+        -------
+        Markdown string containing all mandatory sections laid out per Productoo
+        conventions (Problem, Outcome Hypothesis, Acceptance Criteria, …).
+        """
+    ),
+    args_schema=SpecGenerationInput,
+)
+
+
 # ───────────────────────── Exports ────────────────────────────────────────────
 __all__ = [
     "search_tool",
@@ -484,4 +574,5 @@ __all__ = [
     "tavily_tool",
     "save_tool",
     "jira_duplicates",
+    "spec_writer_tool",
 ]
