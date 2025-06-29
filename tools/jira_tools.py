@@ -9,7 +9,7 @@ from langchain.tools import StructuredTool
 from pydantic import BaseModel, Field
 from requests.exceptions import HTTPError
 
-from jira_client import JiraClient, find_duplicate_ideas
+from services import JiraClient, find_duplicate_ideas
 
 # Opt‑out from OpenAI telemetry
 os.environ.setdefault("OPENAI_TELEMETRY", "0")
@@ -132,7 +132,7 @@ def _jira_issue_detail(key: str) -> str:
     itype = f.get("issuetype", {}).get("name", "—")
     labels = ", ".join(f.get("labels") or []) or "—"
 
-    from jira_client import _extract_text_from_adf
+    from services import _extract_text_from_adf
 
     raw_desc = f.get("description")
     description_src = f.get("description_plain") or f.get("description")

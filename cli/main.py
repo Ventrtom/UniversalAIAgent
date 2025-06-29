@@ -1,3 +1,4 @@
+# cli/main.py
 from __future__ import annotations
 
 from agent import handle_query, parser, ResearchResponse

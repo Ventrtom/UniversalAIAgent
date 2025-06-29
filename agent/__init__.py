@@ -1,3 +1,4 @@
+# agent/__init__.py
 """Core assembly of the Universal AI agent."""
 from .core import handle_query, agent_executor, ResearchResponse, parser
 

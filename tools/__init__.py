@@ -1,3 +1,4 @@
+# tools/__init__.py
 """Collection of LangChain tools split into dedicated modules."""
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ from .jira_tools import (
     _JIRA,
     _jira_issue_detail,
 )
+from .jira_content_tools import ALL_TOOLS as jira_content_tools
 
 __all__ = [
     "search_tool",
@@ -22,4 +24,5 @@ __all__ = [
     "jira_duplicates",
     "_JIRA",
     "_jira_issue_detail",
+    "jira_content_tools",
 ]

@@ -1,3 +1,4 @@
+# agent/core.py
 from __future__ import annotations
 
 import os
@@ -24,6 +25,7 @@ from tools import (
     jira_ideas,
     jira_issue_detail,
     jira_duplicates,
+    jira_content_tools,
 )
 
 # ---------------------------------------------------------------------------
@@ -118,6 +120,7 @@ _TOOLS = [
     jira_ideas,
     jira_issue_detail,
     jira_duplicates,
+    *jira_content_tools,
 ]
 _agent = create_tool_calling_agent(llm=_llm, prompt=prompt, tools=_TOOLS)
 agent_executor = AgentExecutor(agent=_agent, tools=_TOOLS, memory=_memory, verbose=True)

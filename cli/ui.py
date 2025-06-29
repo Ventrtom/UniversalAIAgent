@@ -1,3 +1,4 @@
+# cli/ui.py
 """Lightweight local front-end for the Universal AI Agent."""
 from __future__ import annotations
 
