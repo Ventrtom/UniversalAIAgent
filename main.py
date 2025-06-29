@@ -34,7 +34,8 @@ from tools import (
     rag_tool,
     tavily_tool,
     jira_ideas,
-    jira_issue_detail
+    jira_issue_detail,
+    jira_duplicates
 )
 
 # ───────────────────────────── Environment & Telemetry ─────────────────────────
@@ -108,7 +109,7 @@ llm = ChatOpenAI(model="gpt-4o", temperature=0.3)
 memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
 # ──────────────────────────────── Agent assembly ───────────────────────────────
-TOOLS = [search_tool, wiki_tool, save_tool, rag_tool, tavily_tool, jira_ideas, jira_issue_detail]
+TOOLS = [search_tool, wiki_tool, save_tool, rag_tool, tavily_tool, jira_ideas, jira_issue_detail, jira_duplicates]
 agent = create_tool_calling_agent(llm=llm, prompt=prompt, tools=TOOLS)
 agent_executor = AgentExecutor(agent=agent, tools=TOOLS, memory=memory, verbose=True)
 

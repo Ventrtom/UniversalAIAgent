@@ -19,7 +19,8 @@ from langchain_community.utilities import WikipediaAPIWrapper
 from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
 from langchain.schema import Document
-from jira_client import JiraClient  # NEW: switched from legacy jira_retriever
+from jira_client import JiraClient, find_duplicate_ideas
+from requests.exceptions import HTTPError
 from tavily import TavilyClient
 
 # ───────────────────────── Telemetry opt‑out ──────────────────────────────────
@@ -47,9 +48,28 @@ save_tool = Tool(
     name="save_text_to_file",
     func=_save_to_txt,
     description=(
-        "Uloží libovolný text (např. rozpracovanou Idea, SWOT, user‑story) do souboru v ./output.\n"
-        "Params → data (string, povinný); filename (volitelný). Pokud filename chybí, vytvoří se research_YYYY‑MM‑DD.txt. "
-        "Vrací potvrzovací zprávu s cestou."
+        """
+        Purpose
+        -------
+        Persist any piece of plain text to a timestamped *.txt* file under ./output/.
+        Ideal for jotting down idea drafts, SWOT analyses, user-stories, or scratch notes
+        that you might want to share later.
+
+        Parameters
+        ----------
+        data   : str   (required) – the full body of text to save.
+        prefix : str   (optional, default "research") – filename prefix; the final name
+                is <prefix>_YYYY-MM-DD_HH-MM-SS.txt.
+
+        Returns
+        -------
+        Confirmation string with the relative file path.  No file object is returned.
+
+        Caveats
+        -------
+        • Simply writes to disk – it does NOT version existing files or push anything
+        back to Jira/Drive.
+        """
     ),
 )
 
@@ -59,8 +79,25 @@ search_tool = Tool(
     name="searchWeb",
     func=_duck.run,
     description=(
-        "Rychlé obecné vyhledávání (DuckDuckGo). Použij pro definice, novinky, blog‑posty.\n"
-        "Nevhodné pro detailní konkurenční analýzu – tam je lepší tavily_search."
+        """
+        Purpose
+        -------
+        Fast, general-purpose web lookup powered by DuckDuckGo.  Best for definitions,
+        quick facts, fresh news articles, or blog posts.
+
+        Parameters
+        ----------
+        query : str – the search phrase.
+
+        Returns
+        -------
+        DDG’s textual snippet(s); no rich metadata or full RSS feed.
+
+        When *not* to use
+        -----------------
+        For in-depth competitor or market research prefer tavily_search, which does
+        semantic ranking.
+        """
     ),
 )
 
@@ -69,7 +106,22 @@ api_wrapper = WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=400)
 wiki_tool = Tool(
     name="wikipedia_query",
     func=WikipediaQueryRun(api_wrapper=api_wrapper).run,
-    description="Získá krátké shrnutí z Wikipedie – vhodné pro historické pozadí, standardy, pojmy.",
+    description=(
+        """
+        Purpose
+        -------
+        Pull a concise (< 400 chars) summary paragraph from Wikipedia for quick
+        background, historical context, industry standards, or terminology.
+
+        Parameters
+        ----------
+        query : str – topic name or phrase.
+
+        Returns
+        -------
+        Plain-text summary (no infobox tables or references).
+        """
+    ),
 )
 
 # ───────────────────────── RAG Retriever over Chroma ──────────────────────────
@@ -87,8 +139,26 @@ rag_tool = Tool(
     name="rag_retriever",
     func=_rag_lookup,
     description=(
-        "Prohledá interní znalostní bázi Productoo (uživatelská dokumentace P4, Roadmapa, archiv konverzací).\n"
-        "Vrací až 4 nejrelevantnější úryvky. Vhodné pro: funkce APS/CMMS, scénáře výroby, Roadmapu."
+        """
+        Purpose
+        -------
+        Semantic Retrieval-Augmented Generation over Productoo’s **internal knowledge
+        base** (embedded in a Chroma DB).  Sources include P4 user documentation,
+        roadmap pages, and archived conversation snippets.
+
+        Parameters
+        ----------
+        query : str – a natural-language question or keyword string.
+
+        Returns
+        -------
+        Up to 4 highly relevant passages concatenated together.
+
+        Typical use cases
+        -----------------
+        P4 application feature details, implementation scenarios, or roadmap justifications
+        to ground an answer before calling an LLM.
+        """
     ),
 )
 
@@ -147,11 +217,23 @@ jira_ideas = StructuredTool.from_function(
     func=_jira_ideas_struct,
     name="jira_ideas_retriever",
     description=(
-        "Načte backlog *Ideas* z JIRA (projekt=P4). Vhodné pro: \n"
-        " • ověření duplicitních nápadů\n"
-        " • rozpracování existujících Ideas do detailu\n"
-        " • návrh akceptačních kritérií\n"
-        "Volitelný parametr `keyword` umožňuje filtrovat Ideas podle textu. Pokud keyword chybí, vrátí celé backlog."
+        """
+        Purpose
+        -------
+        List items from the P4 Jira “Ideas” backlog in a readable table-like text form.
+        Useful for spotting duplicates manually, expanding an idea into deeper detail,
+        or extracting candidate acceptance criteria.
+
+        Parameters
+        ----------
+        keyword : str | None – optional free-text filter applied to summary + description
+                (case-insensitive).  If None, returns the entire backlog (max 100).
+
+        Returns
+        -------
+        For each match: "KEY | Status | Summary" on one line, followed by the description
+        on the next line.
+        """
     ),
     args_schema=JiraIdeasInput,
 )
@@ -181,14 +263,28 @@ tavily_tool = Tool(
     name="tavily_search",
     func=_tavily_search,
     description=(
-        "Pokročilé sémantické vyhledávání (LLM). Vhodné pro: \n"
-        " • konkurenční analýzu APS/CMMS\n        • white‑papers, tiskové zprávy, trendy trhu\n"
-        "Vrací až 6 výsledků (URL + snippet). Vyžaduje proměnnou prostředí TAVILY_API_KEY."
+        """
+        Purpose
+        -------
+        LLM-backed **semantic** web search via the Tavily API – tailored for competitive
+        intelligence, white-papers, press releases, or discovering market trends that
+        keyword search might miss.
+
+        Parameters
+        ----------
+        query : str – question or topic.
+
+        Returns
+        -------
+        Up to 6 items: each entry shows the URL plus a ~400-character snippet.
+
+        Prerequisite
+        ------------
+        Environment variable TAVILY_API_KEY must be set; otherwise the tool politely
+        reports it is unavailable.
+        """
     ),
 )
-
-
-
 
 # ───────────────────────── Jira Issue Detail (Structured) ────────────────────
 
@@ -197,13 +293,11 @@ class JiraIssueDetailInput(BaseModel):
 
     key: str = Field(..., description="Jira key, e.g. P4-123")
 
-
 def _format_acceptance_criteria(text: str) -> str:
     """Extract *Given / When / Then* lines from description."""
     pattern = re.compile(r"^\s*(?:\*|-)?\s*(Given|When|Then)\b.*", re.IGNORECASE)
     items = [ln.strip() for ln in text.splitlines() if pattern.match(ln)]
     return "\n".join(f"- {ln.lstrip('*- ').strip()}" for ln in items)
-
 
 def _jira_issue_detail(key: str) -> str:
     """Return a single Jira issue with rich context in markdown."""
@@ -220,11 +314,14 @@ def _jira_issue_detail(key: str) -> str:
                 "comment",
             ],
         )
-    except Exception as exc:  # noqa: BLE001 – user-facing error branch
-        msg = str(exc)
-        if "404" in msg:
-            return f"Issue {key} not found"
-        raise
+    except HTTPError as http_exc:
+        # 404 → neexistuje, 403 → bez práv – obojí chceme vrátit jako info
+        code = getattr(http_exc.response, "status_code", None)
+        if code in (403, 404) or "does not exist" in str(http_exc).lower():
+            return f"Issue {key} neexistuje nebo k němu nemáte přístup."
+        return f"HTTP chyba při načítání {key}: {http_exc}"
+    except Exception as exc:  # pragma: no cover – jiná neočekávaná chyba
+        return f"Chyba při načítání issue {key}: {exc}"
 
     f = {**issue.get("fields", {}), **{k: v for k, v in issue.items() if k != "fields"}}
 
@@ -292,13 +389,90 @@ def _jira_issue_detail(key: str) -> str:
 jira_issue_detail = StructuredTool.from_function(
     func=_jira_issue_detail,
     name="jira_issue_detail",
-    description="Return a single Jira issue (summary, description, subtasks, latest comments).",
+    description=(
+        """
+        Purpose
+        -------
+        Fetch a single Jira issue and format it as rich Markdown, giving a 360° snapshot
+        for rapid context-building.
+
+        Parameters
+        ----------
+        key : str – Jira key, e.g. "P4-24".
+
+        Output sections
+        ---------------
+        • Summary line
+        • Status | Type | Labels
+        • Full Description (ADF converted to text)
+        • Acceptance Criteria (auto-extracted Given/When/Then, if present)
+        • Sub-tasks list
+        • Up to three latest comments with authors and dates
+        """
+        ),
     args_schema=JiraIssueDetailInput,
 )
 
+# ───────────────────── Jira Duplicate-Idea Checker (Structured) ──────────────
+
+class DuplicateIdeasInput(BaseModel):
+    summary: str = Field(..., description="Krátký popis/summary nové Idea.")
+    description: str | None = Field(
+        default=None,
+        description="(Volitelné) Delší popis nápadu – zahrne se do kontroly duplicity.",
+    )
+    threshold: float = Field(
+        default=0.8,
+        ge=0,
+        le=1,
+        description="Práh kosinové podobnosti 0-1 (výchozí 0.8).",
+    )
+
+def _duplicate_ideas(summary: str,
+                     description: str | None = None,
+                     threshold: float = 0.8) -> str:
+    try:
+        matches = find_duplicate_ideas(summary, description, threshold)
+    except ValueError as exc:  # invalid threshold
+        return f"Neplatný parametr `threshold`: {exc}"
+
+    if not matches:
+        return "Žádné potenciální duplicity nad daným prahem nenalezeny."
+    return "Možné duplicitní nápady: " + ", ".join(matches)
 
 
+jira_duplicates = StructuredTool.from_function(
+    func=_duplicate_ideas,
+    name="jira_duplicate_idea_checker",
+    description=(
+        """
+        Purpose
+        -------
+        Detect whether a *new* idea is likely a **duplicate** of an existing P4 Jira Idea
+        using cosine similarity of OpenAI embeddings.
 
+        Parameters
+        ----------
+        summary     : str   (required) – one-line headline of the proposed idea.
+        description : str | None (optional) – longer text; concatenated with summary for
+                    embedding.
+        threshold   : float       (optional, 0-1, default 0.8) – similarity cutoff;
+                    lower for fuzzier matches.
+
+        Returns
+        -------
+        Either "No potential duplicates above threshold"
+        OR a comma-separated list of Jira keys ordered by similarity (highest first).
+
+        Implementation notes
+        --------------------
+        • Uses text-embedding-3-small.
+        • Performs acronym expansion (e.g. 2FA → "two factor authentication").
+        • Considers *summary + description* on both sides.
+        """
+    ),
+    args_schema=DuplicateIdeasInput,
+)
 
 # ───────────────────────── Exports ────────────────────────────────────────────
 __all__ = [
@@ -309,4 +483,5 @@ __all__ = [
     "jira_issue_detail",
     "tavily_tool",
     "save_tool",
+    "jira_duplicates",
 ]

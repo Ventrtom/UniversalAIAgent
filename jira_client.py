@@ -8,16 +8,17 @@ all constructor parameters optional and loading missing values from
 It also keeps the rich, uniform payload for ``search_issues`` / ``get_issue``
 so higher‑level tools display *description*, *status* … correctly.
 """
-
 from __future__ import annotations
-
+from typing import Any, Dict, List, Sequence, Tuple
+from langchain_openai import OpenAIEmbeddings
+from datetime import datetime
+from atlassian import Jira
+from pathlib import Path
 import json
 import os
 import time
-from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
+import math
 
-from atlassian import Jira  # type: ignore
 
 __all__ = ["JiraClient"]
 
@@ -148,3 +149,87 @@ class JiraClient:  # pylint: disable=too-few-public-methods
             fld["description_plain"] = plain
             fld["description"] = plain
         return {"key": key, "fields": fld}
+
+
+
+# ────────────────────────── Embed-cache + normalizace ─────────────────────────
+_ABBREV = {
+    "2fa": "two factor authentication",
+    "mfa": "multi factor authentication",
+    "sso": "single sign on",
+    # přidej další zkratky podle potřeby…
+}
+
+def _normalize(text: str) -> str:
+    """Lower-case + rozbalí běžné zkratky před embedováním."""
+    t = text.lower()
+    for short, full in _ABBREV.items():
+        t = t.replace(short, full)
+    return t
+
+
+_CACHE_TTL = 300  # sekund
+_EMBED_CACHE: dict[str, tuple[list[float], float]] = {}
+_MODEL: OpenAIEmbeddings | None = None
+
+
+def _get_model() -> OpenAIEmbeddings:
+    global _MODEL
+    if _MODEL is None:
+        _MODEL = OpenAIEmbeddings(model="text-embedding-3-small")
+    return _MODEL
+
+
+def _cached_embedding(text: str) -> list[float]:
+    """Embed normalizovaný text a výsledek podrž v paměti max. 5 minut."""
+    text = _normalize(text)
+    now = time.time()
+    if (cache := _EMBED_CACHE.get(text)) and now - cache[1] < _CACHE_TTL:
+        return cache[0]
+
+    emb = _get_model().embed_query(text)
+    _EMBED_CACHE[text] = (emb, now)
+    return emb
+
+
+def _cosine(u: Sequence[float], v: Sequence[float]) -> float:
+    dot = sum(a * b for a, b in zip(u, v))
+    nu = math.sqrt(sum(a * a for a in u))
+    nv = math.sqrt(sum(b * b for b in v))
+    return 0.0 if not nu or not nv else dot / (nu * nv)
+
+
+# ─────────────────────── Public helper – DUPLICATE CHECK ──────────────────────
+def find_duplicate_ideas(summary: str, threshold: float = 0.75) -> List[str]:
+    """
+    Vrátí klíče JIRA Ideas, jejichž *summary + description* je kosinově podobné
+    zadanému *summary* alespoň `threshold`.
+    """
+    if not 0.0 <= threshold <= 1.0:
+        raise ValueError("threshold must be between 0 and 1")
+
+    query_vec = _cached_embedding(summary)
+
+    client = JiraClient()
+    jql = "issuetype = Idea AND resolution = Unresolved"
+    issues = client.search_issues(
+        jql, max_results=200, fields=["summary", "description"]
+    )
+
+    scored: list[tuple[str, float]] = []
+    for issue in issues:
+        key = issue["key"]
+        fld = issue.get("fields", {})
+        idea_text = f"{fld.get('summary', '')} {fld.get('description', '')}".strip()
+        if not idea_text:
+            continue
+        sim = _cosine(query_vec, _cached_embedding(idea_text))
+        if sim >= threshold:
+            scored.append((key, sim))
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [k for k, _ in scored]
+
+
+# rozšíření exportů
+__all__ = ["JiraClient", "find_duplicate_ideas"]
