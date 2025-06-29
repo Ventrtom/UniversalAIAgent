@@ -12,7 +12,12 @@ import math
 from atlassian import Jira
 from langchain_openai import OpenAIEmbeddings
 
-__all__ = ["JiraClient", "find_duplicate_ideas", "JiraClientError"]
+__all__ = [
+    "JiraClient",
+    "find_duplicate_ideas",
+    "JiraClientError",
+    "_extract_text_from_adf",
+]
 
 _CFG_PATH = Path("config.json")
 _RETRY_SLEEP = (0.5, 1.5, 3.0)  # exponential back-off in seconds
