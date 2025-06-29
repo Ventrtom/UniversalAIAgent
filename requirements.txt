@@ -8,5 +8,6 @@ python-dotenv
 pydantic
 duckduckgo-search
 tavily-python
-atlassian-python-api
+atlassian-python-api>=4.0.4
 gradio
+pytest

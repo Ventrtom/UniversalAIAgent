@@ -101,15 +101,12 @@ TAVILY_API_KEY=""           # optional
 
 | Priority | Item                                     | Rationale                                                                               |
 | -------- | ---------------------------------------- | --------------------------------------------------------------------------------------- |
-| **⬆**    | **`jira_issue_detail` Tool**             | Fetch full Jira issue by key; enable deep context for duplicates & acceptance criteria. |
-| **⬆**    | **Auth & multi‑user UI**                 | OIDC (Google / Azure) + per‑user memory; share publicly via FastAPI mount.              |
-| **⬆**    | **Dockerfile & CI**                      | Reproducible deployments; CI lint + tests.                                              |
+| **⬆**    | **`jira_issue_detail` Tool**             | Fetch full Jira issue by key; enable deep context for duplicates & acceptance criteria. |                                            |
 |  —       | Confluence incremental sync              | Schedule nightly run; mark removed pages as archived in RAG.                            |
 |  —       | Auto‑summarise fresh Jira tickets to RAG | “Chronicle” new issues daily for fast retrieval.                                        |
 |  —       | Duplicate‑idea detector                  | Hash & embedding similarity across Jira Ideas.                                          |
-|  —       | KPI dashboard                            | Track solved tickets, average cycle‑time, top requested features.                       |
-|  —       | Slack/Teams integration                  | Ask the agent directly from chat; post daily digest.                                    |
+|  —       | KPI dashboard                            | Track solved tickets, average cycle‑time, top requested features.                       |                                |
 |  —       | Unit & integration tests                 | pytest + Playwright for UI workflows.                                                   |
-|  —       | Production-grade logging & tracing       | OpenTelemetry, structured JSON logs.                                                    |
+|  —       | Create Jira Epics, Stories & Release notes  | Write content of jira issues                                                  |
 
 Contributions & ideas welcome – open an issue or ping **@tomas.ventruba**.
