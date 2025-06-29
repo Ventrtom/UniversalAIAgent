@@ -1,14 +1,4 @@
-"""main.py — Interactive Universal AI Agent with Self‑Learning RAG
-==============================================================
-▪ Keeps a running conversation until the user types exit/quit/bye or hits Ctrl‑C.
-▪ Remembers dialogue context through ConversationBufferMemory.
-▪ After every turn, automatically stores the user ⇄ assistant exchange into the
-  Chroma vector‑store (RAG) so future sessions can pick up historical context.
-
-Run with:  $ python main.py
-Prereqs:   python‑dotenv, langchain>=0.2, langchain‑openai, langchain‑chroma,
-           pydantic>=2, the tools.py module in project root.
-"""
+"""Compatibility wrapper for the CLI entry point."""
 from __future__ import annotations
 
 import os
