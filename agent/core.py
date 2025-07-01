@@ -11,9 +11,10 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain.memory import ConversationBufferMemory
+from langchain.memory.buffer import ConversationBufferMemory
 from langchain.schema import Document
 from langchain_chroma import Chroma
+from chromadb.config import Settings
 from pydantic import BaseModel
 
 from tools import (
@@ -26,6 +27,7 @@ from tools import (
     jira_issue_detail,
     jira_duplicates,
     jira_content_tools,
+    process_input_tool,
 )
 
 # ---------------------------------------------------------------------------
@@ -36,6 +38,8 @@ load_dotenv()
 os.environ.setdefault("OPENAI_TELEMETRY", "0")
 if hasattr(openai, "telemetry") and hasattr(openai.telemetry, "TelemetryClient"):
     openai.telemetry.TelemetryClient.capture = lambda *_, **__: None
+
+
 
 # ---------------------------------------------------------------------------
 # Vectorstore (RAG) setup
@@ -121,6 +125,7 @@ _TOOLS = [
     jira_issue_detail,
     jira_duplicates,
     *jira_content_tools,
+    process_input_tool,
 ]
 _agent = create_tool_calling_agent(llm=_llm, prompt=prompt, tools=_TOOLS)
 agent_executor = AgentExecutor(agent=_agent, tools=_TOOLS, memory=_memory, verbose=True)

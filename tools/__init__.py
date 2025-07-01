@@ -12,6 +12,7 @@ from .jira_tools import (
     _jira_issue_detail,
 )
 from .jira_content_tools import ALL_TOOLS as jira_content_tools
+from .input_loader import process_input_tool
 
 __all__ = [
     "search_tool",
@@ -25,4 +26,5 @@ __all__ = [
     "_JIRA",
     "_jira_issue_detail",
     "jira_content_tools",
+    "process_input_tool",
 ]

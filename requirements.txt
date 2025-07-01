@@ -4,6 +4,7 @@ langchain-community
 langchain-openai
 langchain-anthropic
 langchain-chroma
+langchain-unstructured
 python-dotenv
 pydantic
 duckduckgo-search
@@ -11,3 +12,5 @@ tavily-python
 atlassian-python-api>=4.0.4
 gradio
 pytest
+chromadb>=0.4.29
+unstructured

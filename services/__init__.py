@@ -13,6 +13,7 @@ from .jira_content_service import (
     epic_from_idea,
     user_stories_for_epic,
 )
+from .input_loader import process_input_files
 
 __all__ = [
     "JiraClient",
@@ -27,4 +28,5 @@ __all__ = [
     "tavily_search",
     "_extract_text_from_adf",
     "jira_content_tools",
+    "process_input_files",
 ]

@@ -1,0 +1,3 @@
+this is new file for testing inmport files tool.
+
+The main message of this file is "Crysis is the best".

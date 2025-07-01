@@ -18,6 +18,7 @@ os.environ["CHROMA_TELEMETRY"] = "0"
 
 from langchain_community.document_loaders import ConfluenceLoader
 from langchain_openai import OpenAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
