@@ -72,7 +72,7 @@ def main():
             url=base_url,
             username=user,
             api_key=token,
-            cql=f"ancestor={anc}",
+            cql=f"(id={anc} OR ancestor={anc})",
             include_archived_content=False,
             include_restricted_content=False
         )

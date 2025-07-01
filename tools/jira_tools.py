@@ -8,8 +8,9 @@ from typing import List, Optional
 from langchain.tools import StructuredTool
 from pydantic import BaseModel, Field
 from requests.exceptions import HTTPError
+import difflib
 
-from services import JiraClient, find_duplicate_ideas
+from services import JiraClient, find_duplicate_ideas, _extract_text_from_adf
 
 # Opt‑out from OpenAI telemetry
 os.environ.setdefault("OPENAI_TELEMETRY", "0")
@@ -270,10 +271,121 @@ jira_duplicates = StructuredTool.from_function(
     args_schema=DuplicateIdeasInput,
 )
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Jira Update-Description Tool  (human-in-the-loop commit)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class UpdateDescriptionInput(BaseModel):
+    """Arguments for *jira_update_description* tool."""
+    key: str = Field(..., description="Issue key, e.g. 'P4-123'.")
+    new_description: str = Field(
+        ...,
+        description="Entire new description (plain text nebo Markdown – "
+                    "Jira ho automaticky převede).",
+    )
+    confirm: bool = Field(
+        default=False,
+        description=(
+            "⚠️  SECURITY SWITCH – musí být **True**, aby se změna zapsala do Jira. "
+            "Pokud False (default), nástroj pouze zobrazí diff a požádá o potvrzení."
+        ),
+    )
+
+
+def _jira_update_description(
+    *, key: str, new_description: str, confirm: bool = False
+) -> str:
+    """
+    Two-step safe update of *description* field:
+
+    1. `confirm=False` (default)  
+       • Stáhne aktuální popis, zobrazí **diff** (`-` staré, `+` nové řádky).  
+       • Vrátí instrukci, jak změnu potvrdit.
+
+    2. `confirm=True`  
+       • Odešle `PUT /issue/{key}` s `{"fields": {"description": …}}`.  
+       • Vrátí ✅ potvrzení nebo chybovou hlášku.
+    """
+    try:
+        old_issue = _JIRA.get_issue(key, fields=["description"])
+    except Exception as exc:  # pragma: no cover – user-facing
+        return f"❌ Nelze načíst issue {key}: {exc}"
+
+    old_raw = old_issue.get("fields", {}).get("description") or ""
+    old_desc = (
+        _extract_text_from_adf(old_raw)
+        if isinstance(old_raw, (dict, list))
+        else str(old_raw)
+    ).strip()
+
+    new_desc = new_description.strip()
+
+    # Krok 1 – náhled diffu (always)
+    if not confirm:
+        diff = "\n".join(
+            difflib.unified_diff(
+                old_desc.splitlines(),
+                new_desc.splitlines(),
+                fromfile="aktuální",
+                tofile="navrhované",
+                lineterm="",
+            )
+        ) or "*Žádný rozdíl*"
+
+        return (
+            f"### Náhled změny popisu pro **{key}**\n"
+            f"```diff\n{diff}\n```\n"
+            "Toto je **pouze náhled** – nic nebylo uloženo.\n"
+            "Chcete-li změnu potvrdit, znovu spusťte `jira_update_description` "
+            "se stejnými parametry a `confirm=True`."
+        )
+
+    # Krok 2 – skutečný zápis
+    if old_desc == new_desc:
+        return "ℹ️  Nový popis je identický se stávajícím – nic se nezměnilo."
+
+    try:
+        _JIRA.update_issue(key, {"fields": {"description": new_desc}})
+    except Exception as exc:  # pragma: no cover
+        return f"❌ Aktualizace selhala: {exc}"
+
+    return f"✅ Popis issue **{key}** byl úspěšně aktualizován."
+
+
+jira_update_description = StructuredTool.from_function(
+    func=_jira_update_description,
+    name="jira_update_description",
+    description=(
+        """
+        Safe, human-confirmed update of a Jira issue’s **Description** field.
+
+        Typical workflow
+        ----------------
+        1. Call tool **without** `confirm` → diff preview is returned.  
+        2. If the preview is correct, call again with `confirm=True` to commit.
+
+        Parameters
+        ----------
+        key            : str   – issue key.  
+        new_description: str   – full replacement body (plain/Markdown).  
+        confirm        : bool  – must be True to actually save.
+
+        Returns
+        -------
+        • Preview (`confirm=False`) – unified diff in ```diff``` block.  
+        • Commit   (`confirm=True`) – success / error message.
+        """
+    ),
+    args_schema=UpdateDescriptionInput,
+)
+
+
 __all__ = [
     "jira_ideas",
     "jira_issue_detail",
     "jira_duplicates",
     "_JIRA",
     "_jira_issue_detail",
+    "jira_update_description",
 ]

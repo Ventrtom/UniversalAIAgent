@@ -10,6 +10,7 @@ from .jira_tools import (
     jira_duplicates,
     _JIRA,
     _jira_issue_detail,
+    jira_update_description,
 )
 from .jira_content_tools import ALL_TOOLS as jira_content_tools
 from .input_loader import process_input_tool
@@ -27,4 +28,5 @@ __all__ = [
     "_jira_issue_detail",
     "jira_content_tools",
     "process_input_tool",
+    "jira_update_description",
 ]

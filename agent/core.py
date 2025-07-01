@@ -28,6 +28,7 @@ from tools import (
     jira_duplicates,
     jira_content_tools,
     process_input_tool,
+    jira_update_description,
 )
 
 # ---------------------------------------------------------------------------
@@ -126,18 +127,30 @@ _TOOLS = [
     jira_duplicates,
     *jira_content_tools,
     process_input_tool,
+    jira_update_description,
 ]
 _agent = create_tool_calling_agent(llm=_llm, prompt=prompt, tools=_TOOLS)
-agent_executor = AgentExecutor(agent=_agent, tools=_TOOLS, memory=_memory, verbose=True)
+agent_executor = AgentExecutor(
+    agent=_agent,
+    tools=_TOOLS,
+    memory=_memory,
+    verbose=True,
+    return_intermediate_steps=True,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 def handle_query(query: str) -> str:
-    """Process *query* via the agent and store the exchange."""
+    """Vrátí plný návrh (Markdown), pokud je k dispozici, jinak fallback na summary."""
     raw = agent_executor.invoke({"query": query})
-    answer = raw.get("output", "")
+    full = next(
+        (obs for _act, obs in reversed(raw.get("intermediate_steps", []))
+         if isinstance(obs, str) and obs.strip()),
+        "",
+    )
+    answer = full or raw.get("output", "")
     _store_exchange(query, answer)
     return answer
 
