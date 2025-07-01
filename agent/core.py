@@ -29,6 +29,8 @@ from tools import (
     jira_content_tools,
     process_input_tool,
     jira_update_description,
+    jira_child_issues,
+    jira_issue_links,
 )
 
 # ---------------------------------------------------------------------------
@@ -128,6 +130,8 @@ _TOOLS = [
     *jira_content_tools,
     process_input_tool,
     jira_update_description,
+    jira_child_issues,
+    jira_issue_links,
 ]
 _agent = create_tool_calling_agent(llm=_llm, prompt=prompt, tools=_TOOLS)
 agent_executor = AgentExecutor(

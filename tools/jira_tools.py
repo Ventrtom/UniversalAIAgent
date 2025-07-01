@@ -362,8 +362,6 @@ def _jira_update_description(
     return f"✅ Popis issue **{key}** byl úspěšně aktualizován."
 # ──────────────────────────────────────────────────────────────────────────────
 
-
-
 jira_update_description = StructuredTool.from_function(
     func=_jira_update_description,
     name="jira_update_description",
@@ -392,6 +390,136 @@ jira_update_description = StructuredTool.from_function(
 )
 
 
+# ───────────────────────── Jira Child-Issues Retriever ──────────────────────
+class ChildIssuesInput(BaseModel):
+    """Vrátí přímé child issues (Stories, Tasks…) pod zadaným issue/Epicem."""
+    key: str = Field(..., description="Jira key nadřazeného issue, např. 'P4-123'.")
+
+def _jira_child_issues(key: str) -> str:
+    """
+    Najde všechny *přímé* potomky (parent/„Epic Link“) zadaného issue.
+
+    • Pro Company-managed projekty platí JQL `parent = KEY`
+    • Pro Classic projekty (starší Epic Link) `\"Epic Link\" = KEY`
+      → kombinujeme obě podmínky, abychom pokryli obě varianty.
+    """
+    try:
+        jql = f'parent = "{key}" OR "Epic Link" = "{key}"'
+        issues = _JIRA.search_issues(
+            jql,
+            max_results=100,
+            fields=["summary", "status", "issuetype"],
+        )
+    except Exception as exc:                        # pragma: no cover
+        return f"Chyba při načítání JIRA: {exc}"
+
+    if not issues:
+        return f"Issue {key} nemá žádné přímé child issues."
+
+    def _row(i):
+        f = i.get("fields", {})
+        t = f.get("issuetype", {}).get("name", "—")
+        s = f.get("status", {}).get("name", "—")
+        return f"{i['key']} | {t} | {s} | {f.get('summary', '')}"
+
+    return "\n".join(_row(i) for i in issues)
+
+jira_child_issues = StructuredTool.from_function(
+    func=_jira_child_issues,
+    name="jira_child_issues",
+    description=(
+        """
+        Purpose
+        -------
+        Zobrazí seznam všech přímých child issues (Stories, Tasks, Bugs…)
+        pod zadaným nadřazeným issue (typicky Epic).
+
+        Parameters
+        ----------
+        key : str – Jira key, např. "P4-42".
+
+        Returns
+        -------
+        Každý řádek: "KEY | IssueType | Status | Summary".
+        """
+    ),
+    args_schema=ChildIssuesInput,
+)
+
+# ───────────────────── JIRA Issue-Links Explorer ────────────────────────
+from typing import List               # pokud už máte, tento import můžete smazat
+from pydantic import BaseModel, Field
+from langchain.tools import StructuredTool
+
+class IssueLinksInput(BaseModel):
+    """Vypíše všechny vazby (issue links) k danému Jira issue."""
+    key: str = Field(..., description="Jira key, např. 'P4-42'.")
+
+def _jira_issue_links(key: str) -> str:
+    """
+    Vrátí kompletní seznam všech propojených issues a typ vazby.
+
+    • Pro každou linku rozliší směr (inward/outward) podle Jiry.
+    • Formát: "KEY | Relation | Type | Status | Summary"
+    """
+    try:
+        issue = _JIRA.get_issue(key, fields=["issuelinks"])
+    except Exception as exc:                         # pragma: no cover
+        return f"Chyba při načítání JIRA: {exc}"
+
+    links = issue.get("fields", {}).get("issuelinks", [])
+    if not links:
+        return f"Issue {key} nemá žádné vazby."
+
+    rows: List[str] = []
+    for ln in links:
+        ltype = ln.get("type", {})
+        relation = ltype.get("name", "—")
+        # rozlišíme směr
+        if "outwardIssue" in ln:
+            other = ln["outwardIssue"]
+            relation = ltype.get("outward") or relation
+        elif "inwardIssue" in ln:
+            other = ln["inwardIssue"]
+            relation = ltype.get("inward") or relation
+        else:
+            continue
+
+        okey = other.get("key", "???")
+        f = other.get("fields", {})
+        otype = f.get("issuetype", {}).get("name", "—")
+        ostatus = f.get("status", {}).get("name", "—")
+        osummary = f.get("summary", "")
+
+        rows.append(f"{okey} | {relation} | {otype} | {ostatus} | {osummary}")
+
+    return "\n".join(rows)
+
+
+jira_issue_links = StructuredTool.from_function(
+    func=_jira_issue_links,
+    name="jira_issue_links",
+    description=(
+        """
+        Purpose
+        -------
+        Returns all relations (links) of selected Jira issue – duplicates, relates-to,
+        blocks, etc. Every relation has information direction (inward/outward).
+
+        Parameters
+        ----------
+        key : str – Jira key (for example "P4-42").
+
+        Returns
+        -------
+        One line per relation:
+        "KEY | Relation | IssueType | Status | Summary"
+        """
+    ),
+    args_schema=IssueLinksInput,
+)
+
+
 __all__ = [
     "jira_ideas",
     "jira_issue_detail",
@@ -399,4 +527,6 @@ __all__ = [
     "_JIRA",
     "_jira_issue_detail",
     "jira_update_description",
+    "jira_child_issues",
+    "jira_issue_links",
 ]

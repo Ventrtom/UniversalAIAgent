@@ -140,7 +140,7 @@ class UserStoriesForEpicInput(BaseModel):
 def _user_stories_for_epic_tool(
     *, epic_name: str, epic_description: str, count: int = 5
 ) -> str:
-    """Generate INVEST-compliant **User Stories** for the given epic.
+    """Generate INVEST-compliant **User Stories** for the given epic in czech language.
 
     For each story:
     - Title

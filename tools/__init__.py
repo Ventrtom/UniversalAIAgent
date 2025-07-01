@@ -11,6 +11,8 @@ from .jira_tools import (
     _JIRA,
     _jira_issue_detail,
     jira_update_description,
+    jira_child_issues,
+    jira_issue_links,
 )
 from .jira_content_tools import ALL_TOOLS as jira_content_tools
 from .input_loader import process_input_tool
@@ -29,4 +31,6 @@ __all__ = [
     "jira_content_tools",
     "process_input_tool",
     "jira_update_description",
+    "jira_child_issues",
+    "jira_issue_links",
 ]
