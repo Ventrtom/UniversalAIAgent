@@ -293,23 +293,19 @@ class UpdateDescriptionInput(BaseModel):
     )
 
 
+# ──────────────────────────────────────────────────────────────────────────────
 def _jira_update_description(
     *, key: str, new_description: str, confirm: bool = False
 ) -> str:
     """
     Two-step safe update of *description* field:
 
-    1. `confirm=False` (default)  
-       • Stáhne aktuální popis, zobrazí **diff** (`-` staré, `+` nové řádky).  
-       • Vrátí instrukci, jak změnu potvrdit.
-
-    2. `confirm=True`  
-       • Odešle `PUT /issue/{key}` s `{"fields": {"description": …}}`.  
-       • Vrátí ✅ potvrzení nebo chybovou hlášku.
+    1. confirm=False → diff preview
+    2. confirm=True  → actual write (now with correct ADF!)
     """
     try:
         old_issue = _JIRA.get_issue(key, fields=["description"])
-    except Exception as exc:  # pragma: no cover – user-facing
+    except Exception as exc:
         return f"❌ Nelze načíst issue {key}: {exc}"
 
     old_raw = old_issue.get("fields", {}).get("description") or ""
@@ -321,7 +317,7 @@ def _jira_update_description(
 
     new_desc = new_description.strip()
 
-    # Krok 1 – náhled diffu (always)
+    # Step 1 – náhled diffu
     if not confirm:
         diff = "\n".join(
             difflib.unified_diff(
@@ -332,7 +328,6 @@ def _jira_update_description(
                 lineterm="",
             )
         ) or "*Žádný rozdíl*"
-
         return (
             f"### Náhled změny popisu pro **{key}**\n"
             f"```diff\n{diff}\n```\n"
@@ -341,16 +336,32 @@ def _jira_update_description(
             "se stejnými parametry a `confirm=True`."
         )
 
-    # Krok 2 – skutečný zápis
+    # Step 2 – skutečný zápis přes ADF
     if old_desc == new_desc:
-        return "ℹ️  Nový popis je identický se stávajícím – nic se nezměnilo."
+        return "ℹ️ Nový popis je identický se stávajícím – nic se nezměnilo."
+
+    # → zde zabalíme plain text do ADF
+    adf_doc = {
+        "version": 1,
+        "type": "doc",
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": new_desc}
+                ],
+            }
+        ],
+    }
 
     try:
-        _JIRA.update_issue(key, {"fields": {"description": new_desc}})
-    except Exception as exc:  # pragma: no cover
+        _JIRA.update_issue(key, {"fields": {"description": adf_doc}})
+    except Exception as exc:
         return f"❌ Aktualizace selhala: {exc}"
 
     return f"✅ Popis issue **{key}** byl úspěšně aktualizován."
+# ──────────────────────────────────────────────────────────────────────────────
+
 
 
 jira_update_description = StructuredTool.from_function(

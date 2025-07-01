@@ -8,6 +8,7 @@ import json
 import os
 import time
 import math
+import inspect
 
 from atlassian import Jira
 from langchain_openai import OpenAIEmbeddings
@@ -149,6 +150,70 @@ class JiraClient:  # pylint: disable=too-few-public-methods
             fld["description_plain"] = plain
             fld["description"] = plain
         return {"key": key, "fields": fld}
+    
+        # ──────────────────────────────────────────────────────────────────
+    # JiraClient.update_issue – jediný veřejný mutační entry-point
+    # ──────────────────────────────────────────────────────────────────
+    def update_issue(
+        self,
+        key: str,
+        data: Dict[str, Any] | None = None,
+    ) -> None:
+        """
+        Update arbitrary fields of a Jira issue (např. description, labels…).
+
+        data = { "fields": {...}, "update": {...} }  # podle REST API
+        """
+        import inspect   # <- už je naimportován nahoře, přidejte jen pokud chybí
+
+        data = data or {}
+        fields_param = data.get("fields")
+        update_param = data.get("update")
+
+        # 1️⃣ Vybereme metodu (update_issue › edit_issue › Issue.update)
+        if hasattr(self._jira, "update_issue"):
+            func = self._jira.update_issue
+        elif hasattr(self._jira, "edit_issue"):
+            func = self._jira.edit_issue
+        else:
+            issue = self._call(self._jira.issue, key)
+            func = issue.update
+
+        # 2️⃣ Připravíme payload pro „starší“ signaturu (jediný dict)
+        payload: Dict[str, Any] = {}
+        if fields_param is not None:
+            payload["fields"] = fields_param
+        if update_param is not None:
+            payload["update"] = update_param
+
+        # Pokud posíláme ADF (tj. description=dict), obejdeme SDK
+        if (
+            fields_param
+            and isinstance(fields_param.get("description"), dict)  # ADF poznáme podle dict
+        ):
+            url = f"{self._jira.url}/rest/api/3/issue/{key}"
+            #   self._jira.session je requests.Session() už přihlášený BasicAuth-Tokenem
+            resp = self._jira.session.put(url, json={"fields": fields_param})
+            if not resp.ok:
+                raise JiraClientError(
+                    f"Jira update failed: {resp.status_code} {resp.text}"
+                )
+            return
+
+        # 3️⃣ Zavoláme správnou signaturu podle toho, co metoda opravdu umí
+        sig = inspect.signature(func)
+        try:
+            if "fields" in sig.parameters:
+                # Novější atlassian-python-api (>=3.41) – podporuje pojmenované parametry
+                self._call(func, key, fields=fields_param, update=update_param)
+            else:
+                # Starší verze – očekává jediný slovník payload
+                self._call(func, key, payload)
+        except Exception as exc:                 # noqa: BLE001
+            raise JiraClientError(f"Jira update failed: {exc}") from exc
+
+
+
 
 
 # ────────────────────────── Embed-cache + normalizace ─────────────────────────
