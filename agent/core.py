@@ -11,7 +11,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain.memory.buffer import ConversationBufferMemory
+from langchain.memory import ConversationSummaryBufferMemory
 from langchain.schema import Document
 from langchain_chroma import Chroma
 from chromadb.config import Settings
@@ -113,7 +113,15 @@ prompt = ChatPromptTemplate.from_messages(
 # LLM & conversation memory
 # ---------------------------------------------------------------------------
 _llm = ChatOpenAI(model="gpt-4o", temperature=0.3)
-_memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+
+_summary_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)  # levnější sumarizační
+
+_memory = ConversationSummaryBufferMemory(
+    llm=_summary_llm,
+    memory_key="chat_history",
+    return_messages=True,
+    max_token_limit=4000,  # změň dle potřeby
+)
 
 # ---------------------------------------------------------------------------
 # Agent assembly

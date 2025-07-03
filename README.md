@@ -1,112 +1,159 @@
-# 🧠 Universal AI Agent (Productoo P4)
-
-*Conversational assistant for product managers, analysts and engineers working on Productoo’s P4 manufacturing suite.*
-
----
-
-## ✨ What it does now
-
-| Category                      | Status          | Details                                                                                                                 |
-| ----------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **Conversational interface**  | **✅**           | CLI (`main.py`) **and** lightweight Gradio UI (`ui.py`).                                                                |
-| **Knowledge retrieval (RAG)** | **✅**           | Chroma vector‑store (`rag_chroma_db/`) continuously enriched with every Q\&A turn.                                      |
-| **Web search**                | **✅**           | DuckDuckGo (`searchWeb`) & Wikipedia snippet tool.                                                                      |
-| **Semantic web search**       | **β**           | Tavily semantic search if `TAVILY_API_KEY` is present.                                                                  |
-| **Jira integration**          | **✅**           | `jira_ideas_retriever` – lists *Idea* issues matching an optional keyword.                                              |
-| **File output**               | **✅**           | `save_text_to_file` stores each answer in a *new* timestamped file under `./output/`. Visible & downloadable in the UI. |
-| **Confluence loader**         | **✅ (offline)** | `rag_confluence_loader.py` indexes Confluence pages into RAG (manual run).                                              |
-| **Continuous learning**       | **↺**           | Every chat exchange is appended to the vector store for long‑term memory.                                               |
+# 🧠 Universal AI Agent — Productoo P4 Assistant  
+*Conversational copilot for product managers, analysts & engineers building the P4 manufacturing suite.*  
+_Last update: 2025-07-02_
 
 ---
 
-## 🔎 Available tools
+## ✨ Key Features
 
-| Tool name              | Purpose                                                                                   |
-| ---------------------- | ----------------------------------------------------------------------------------------- |
-| `searchWeb`            | Quick DuckDuckGo search (definitions, news, blogs).                                       |
-| `wikipedia_query`      | Short summary from Wikipedia.                                                             |
-| `rag_retriever`        | Fetch up to 4 most relevant chunks from the internal vector store (docs, roadmap, chats). |
-| `jira_ideas_retriever` | List *Ideas* from Jira project **P4**; optional `keyword` filter.                         |
-| `tavily_search`        | LLM‑powered semantic web search (requires `TAVILY_API_KEY`).                              |
-| `save_text_to_file`    | Persist any text to `output/…` (timestamped).                                             |
-
-> **Planned tool** – `jira_issue_detail`: fetch a **single** Jira issue by key (e.g. `P4‑1234`) with full description, acceptance criteria, subtasks & comments.
-> *Benefit:* quick deep‑dives, faster duplicate detection.
+| Category | Status | Details |
+|----------|--------|---------|
+| Conversational interface | **✅** | CLI (`main.py`) & Gradio UI (`ui.py`). |
+| Knowledge retrieval (RAG) | **✅** | Chroma vector-store auto-enriched with every Q/A turn. |
+| Web / semantic search | **✅ / β** | DuckDuckGo & Wikipedia; Tavily search (optional). |
+| Jira integration | **✅** | `jira_ideas_retriever` (list Ideas); **planned** `jira_issue_detail`, create/update. |
+| File output | **✅** | `save_text_to_file` → `./output/YYYY-MM-DD_HHMM.txt`. |
+| Confluence ingestion | **✅ (manual)** | `rag_confluence_loader.py` for bulk import. |
 
 ---
 
-## 🏗 Architecture overview
+## 🧩 3-Tier Memory & Learning Architecture
 
-```
-┌───────────────┐     user query / feedback
-│   Gradio UI   │  ◀──────────────────────┐
-└──────┬────────┘                          │
-       │ HTTP                             │
-┌──────▼────────┐     internal call        │
-│  LangChain    │  ──▶  Tool Router  ──▶───┘
-│   Agent       │          │
-└───────────────┘          ▼
-   │     │    │    structured/tool calls
-   │     │    │
-   │     │    └─▶ Jira API (ideas / issue‑detail)
-   │     └────────▶ Web search (DuckDuckGo / Tavily)
-   └──────────────▶ RAG vector store (Chroma)
+```text
+┌──────── Tier 0 ────────┐  User Prefs Store (language = cz-en, formality = 0.4 …)
+└────────┬──────────────┘
+         │
+┌────────▼──────────────┐  Tier 1 — Episodic Memory  
+│ ConversationSummary    │  • Rolling summary ~50 exchanges  
+└────────┬──────────────┘
+         │
+┌────────▼──────────────┐  Tier 2 — Long-Term Semantic Memory (Chroma)  
+│ Full chats, Jira, docs │  • Recency-boosted, similarity > 0.78  
+└────────────────────────┘
 ```
 
+1. **Retriever** → Tier 2 (recency-weighted)  
+2. **Prompt builder** → Tier 1 summary + Tier 0 prefs  
+3. **LLM call** (GPT-4o by default)  
+4. **Reflection agent** (Llama 3 8B) checks coherence/citations; rerolls if nutné  
+5. Exchange persists back to Tier 2; summary updates Tier 1
+
+_Why it matters:_ agent remembers your decisions & tone, keeps context window small, a reflection pass snižuje halucinace.
+
 ---
 
-## 🚀 Quick start
+## 🏗️ Architecture Overview
+
+```mermaid
+flowchart TD
+    subgraph UI
+        A[CLI] -->|query| C(Agent)
+        B[Gradio] --> C
+    end
+    C -->|tool calls| D[Tool Router]
+    D --> E[Jira API]
+    D --> F[Web / Tavily]
+    D --> G[RAG Vector DB]
+    C --> H[Reflection Agent]
+    H -.-> C
+```
+
+---
+
+## 🚀 Quick Start
 
 ```bash
-# 1. Install deps (create venv beforehand)
+# 1 ) Dependencies
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Configure API keys (.env)
-cp .env.example .env  # fill in OPENAI_API_KEY, JIRA_AUTH_TOKEN …
+# 2 ) Secrets
+cp .env.example .env  # fill in OPENAI_API_KEY, JIRA_AUTH_TOKEN, …
 
-# 3a. Run conversational CLI
-python main.py
-
-# 3b. Or launch local web UI
-python ui.py  # opens http://127.0.0.1:7860
+# 3 ) Run
+python main.py            # CLI
+# or
+python ui.py              # Web UI http://127.0.0.1:7860
 ```
 
-### Required environment variables
+### Required ENV
 
 ```dotenv
-OPENAI_API_KEY="sk‑…"
-JIRA_AUTH_TOKEN="atlassian‑…"
-TAVILY_API_KEY=""           # optional
+OPENAI_API_KEY="sk-…"
+JIRA_AUTH_TOKEN="atlassian-…"
+TAVILY_API_KEY=""        # optional
 ```
 
 ---
 
-## 🗂 Project layout
+## 📂 Project Layout
 
 ```
-📁 universalagent/
-├── main.py                # conversational loop
-├── tools.py               # LangChain Tools (search, Jira, save, …)
-├── ui.py                  # Gradio front‑end
-├── jira_retriever.py      # low‑level Jira REST helper
-├── rag_confluence_loader.py  # import Confluence pages into RAG
-├── rag_vectorstore.py     # bulk‑import local docs into RAG
-├── output/                # timestamped txt exports (git‑ignored)
-└── rag_chroma_db/         # vector DB (git‑ignored)
+universalagent/
+├── main.py                 # conversational loop
+├── ui.py                   # Gradio front-end
+├── tools.py                # LangChain Tools
+├── core_memory.py          # 3-tier memory impl.  ← NEW
+├── reflection_agent.py     # self-critique layer  ← NEW
+├── jira_retriever.py       # low-level Jira REST
+├── rag_*                   # RAG loaders & helpers
+├── output/                 # exported answers
+└── rag_chroma_db/          # vector DB (ignored)
 ```
 
 ---
 
-## 🛣 Next steps (roadmap)
+## 🛣️ Roadmap 2025 H2
 
-| Priority | Item                                     | Rationale                                                                               |
-| -------- | ---------------------------------------- | --------------------------------------------------------------------------------------- |
-| **⬆**    | **`jira_issue_detail` Tool**             | Fetch full Jira issue by key; enable deep context for duplicates & acceptance criteria. |                                            |
-|  —       | Confluence incremental sync              | Schedule nightly run; mark removed pages as archived in RAG.                            |
-|  —       | Auto‑summarise fresh Jira tickets to RAG | “Chronicle” new issues daily for fast retrieval.                                        |
-|  —       | Duplicate‑idea detector                  | Hash & embedding similarity across Jira Ideas.                                          |
-|  —       | KPI dashboard                            | Track solved tickets, average cycle‑time, top requested features.                       |                                |
-|  —       | Unit & integration tests                 | pytest + Playwright for UI workflows.                                                   |
-|  —       | Create Jira Epics, Stories & Release notes  | Write content of jira issues                                                  |
+| Quadrant | Epic | KPI / Definition of Done |
+|----------|------|--------------------------|
+| **Reliability & Memory** | **Feedback-safe short-term memory** | Latency ≤ 2 s @ 2 k messages |
+| | Reflection agent v1 | 20 % drop in hallucination score |
+| **Tools & Integrations** | `jira_issue_detail` + create/update | Epic ↔ Stories auto-flow round-trip |
+| | Confluence incremental sync | Nightly run, removed pages flagged `archived` |
+| **Code Quality & CI** | Ruff + mypy gate | Coverage ≥ 80 % critical modules |
+| | Docker + GH Actions | Push to GHCR on every tag |
+| **LLM Backend** | Adapter layer (OpenAI / Anthropic / Ollama) | Swap model w/o touching business logic |
+| | Fine-tune Llama 3 8B on PM transcripts | 5 % ↑ helpfulness in eval harness |
 
-Contributions & ideas welcome – open an issue or ping **@tomas.ventruba**.
+---
+
+## 🎯 Immediate Priorities (next 2 weeks)
+
+1. **Replace `ConversationBufferMemory` → `ConversationSummaryBufferMemory`**  
+2. **Implement retriever wrapper** with recency decay  
+3. **Add `user_prefs.json`** and inject into every prompt  
+4. **Integrate reflection agent** (ReAct + Self-Critique)  
+5. **CI smoke test** with 20 real PM queries & LLM-as-judge scoring
+
+---
+
+## 🧪 Evaluation Harness (CI)
+
+* **Dataset:** `./eval/pm_queries.jsonl` (prompt, expected key-phrases)  
+* **Metrics:** helpfulness, correctness, style, answer_tokens/context_tokens  
+* **Gate:** PR blocked if score < 0.70
+
+---
+
+## 🤖 Switching Models
+
+| Model | Reasoning | Latency (EU) | Cost / 1k tok | Context |
+|-------|-----------|--------------|---------------|---------|
+| GPT-4o | ★★★★★ | 1.0× | \$0.005 | 128 k |
+| Claude 3 Opus | ★★★★☆ | 1.3× | \$0.009 | 200 k |
+| Llama 3 70B (LoRA) | ★★★ | 0.5×* | \$0.0007 | 8 k |
+
+\* assuming local GPU inference
+
+_Default:_ GPT-4o for main reasoning, Llama 3 8B for reflection & embeddings.
+
+---
+
+## 🙌 Contributing / Ideas
+
+Issues & PRs welcome – or ping **@tomas.ventruba** on Slack. Please run the eval harness before opening a PR.
+
+---
+
+© Productoo s.r.o. 2025 – internal use only.
