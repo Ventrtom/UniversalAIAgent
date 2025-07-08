@@ -11,7 +11,16 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain.agents import create_tool_calling_agent, AgentExecutor
-from .langgraph_memory import LangGraphMemory
+
+try:  # LangChain >= 0.1.12
+    from langchain.memory import (
+        ConversationSummaryBufferMemory,
+        VectorStoreRetrieverMemory,
+        CombinedMemory,
+    )
+except ImportError:  # starší build
+    from langchain.memory.buffer import ConversationSummaryBufferMemory
+    from langchain.memory import VectorStoreRetrieverMemory, CombinedMemory
 
 from langchain.schema import Document
 from langchain_chroma import Chroma
@@ -102,11 +111,20 @@ prompt = ChatPromptTemplate.from_messages(
 # --------------------------------------------------------------------------- #
 # Paměti
 # --------------------------------------------------------------------------- #
-episodic_memory = LangGraphMemory(memory_key="chat_history", input_key="query")
+episodic_memory = ConversationSummaryBufferMemory(
+    llm=_summary_llm,
+    memory_key="chat_history",
+    return_messages=True,
+    max_token_limit=4000,
+    input_key="query",
+)
 
-def _retrieve_long_term(query: str) -> str:
-    docs = _memory_store.as_retriever(search_kwargs={"k": 5}).invoke(query)
-    return "\n".join(doc.page_content for doc in docs)
+long_term_memory = VectorStoreRetrieverMemory(
+    retriever=_memory_store.as_retriever(search_kwargs={"k": 5}),
+    memory_key="long_term_memory",
+)
+
+memory = CombinedMemory(memories=[episodic_memory, long_term_memory])
 
 # --------------------------------------------------------------------------- #
 # Agent a nástroje
@@ -131,7 +149,7 @@ _agent = create_tool_calling_agent(llm=_llm, prompt=prompt, tools=_TOOLS)
 agent_executor = AgentExecutor(
     agent=_agent,
     tools=_TOOLS,
-    memory=episodic_memory,
+    memory=memory,
     verbose=True,
     return_intermediate_steps=True,
 )
@@ -153,8 +171,7 @@ def _store_exchange(question: str, answer: str) -> None:
 # Veřejné API
 # --------------------------------------------------------------------------- #
 def handle_query(query: str) -> str:
-    long_term = _retrieve_long_term(query)
-    raw = agent_executor.invoke({"query": query, "long_term_memory": long_term})
+    raw = agent_executor.invoke({"query": query})
     full = next(
         (
             obs

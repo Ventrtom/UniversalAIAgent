@@ -54,7 +54,7 @@ def _extract_text_from_adf(adf: Any) -> str:
     stack: List[Any] = [adf]
     parts: List[str] = []
     while stack:
-        n = stack.pop(0)
+        n = stack.pop()
         if isinstance(n, dict):
             if n.get("type") == "text" and "text" in n:
                 parts.append(n["text"])
@@ -111,9 +111,6 @@ class JiraClient:  # pylint: disable=too-few-public-methods
                 if delay is None:
                     raise JiraClientError(str(exc)) from exc
                 time.sleep(delay)
-
-    # Backwards-compat shim for tests
-    _call_with_retry = _call
 
     # ------------------------------------------------------------------ public
     def search_issues(
