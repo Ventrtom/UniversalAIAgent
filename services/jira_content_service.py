@@ -36,36 +36,74 @@ def _run(prompt: str) -> str:
     return _llm.invoke(prompt).content.strip()
 
 
+# ── Prompt templates ────────────────────────────────────────────────────────
+
+# Few-shot příklad – udává strukturu i tón
+_IDEA_EXAMPLE: str = """
+## Problem
+Our maintenance costs grew 15 % YoY due to frequent unplanned packaging-line stops.  
+
+## Proposed solution
+Monitor vibration and temperature, predict failures 48 h ahead and auto-schedule maintenance.  
+
+## Business value
+- Reduce downtime by 10 h / month  
+- Save €30 k per quarter  
+
+## Acceptance criteria
+- **Given** line sensors are online  
+- **When** a failure probability > 70% is detected  
+- **Then** a work order is created and maintenance slot reserved
+"""  
+# (konec example)
+
+
 # ── High-level generators ─────────────────────────────────────────────────────
-def enhance_idea(summary: str, description: str | None = None) -> str:
+def enhance_idea(
+    summary: str,
+    description: str | None = None,
+    audience: str = "mixed",
+    max_words: int = 360,
+    ) -> str:
+
+    # ── dynamické systémové instrukce podle publika a délky ───────────────
+    _audience_map = {
+        "business": "executives and sales",
+        "technical": "engineering teams",
+        "mixed": "cross-functional stakeholders",
+    }
+    audience_phrase = _audience_map.get(audience, "cross-functional stakeholders")
+
+    _IDEA_SYSTEM_TMPL = (
+        "You are a senior product manager writing short, board-ready Jira Idea "
+        "descriptions. Audience: {audience_phrase}. Tone: plain, concise, "
+        "British English. Limit the whole output to ≤ {max_words} words. "
+        "Highlight the core insight in the first sentence. Use exactly the "
+        "section headings shown in the example."
+    )
+    idea_system = _IDEA_SYSTEM_TMPL.format(
+        audience_phrase=audience_phrase, max_words=max_words
+    )
+
     """
     Turn a raw *Idea* (summary + optional description) into
     a polished, well-structured Markdown body ready for Jira.
     """
     prompt = f"""
-You are a senior software product manager.
+        {idea_system}
 
-Transform the raw idea below into a **Jira Idea** description
-written in professional British English.  
-Return Markdown with these sections:
+        {_IDEA_EXAMPLE}
 
-## Problem
-<one concise paragraph>
+        ### Raw Idea
+        SUMMARY: {summary}
+        DESCRIPTION: {description or '(none)'}
 
-## Proposed solution
-<1-3 paragraphs, technical outline>
+        ### Task
+        Rewrite the Raw Idea into a polished Jira Idea description using the **same four headings** "
+        (Problem, Proposed solution, Business value, Acceptance criteria). "
+        Use active voice, avoid jargon and filler, keep total length ≤ {max_words} words.
+        """
 
-## Business value
-- <bullet list of measurable benefits>
-
-## Acceptance criteria
-- Given / When / Then bullets (max 5)
-
-Raw Idea
---------
-SUMMARY: {summary}
-DESCRIPTION: {description or '(none)'}
-"""
     return _run(prompt)
 
 
@@ -79,23 +117,23 @@ def epic_from_idea(summary: str, description: str | None = None) -> str:
       • Out of scope
     """
     prompt = f"""
-You are an agile product owner.
+    You are an agile product owner.
 
-Create a **Jira Epic** draft in English from the Idea below.
-Use clear, specific language (avoid adjectives like "great").
-Return Markdown in this order:
+    Create a **Jira Epic** draft in English from the Idea below.
+    Use clear, specific language (avoid adjectives like "great").
+    Return Markdown in this order:
 
-**Epic Goal** – one sentence  
-**Context** – 1-2 paragraphs linking problem & solution  
-**Definition of Done** – bullet list  
-**Acceptance criteria** – Given / When / Then bullets (≤ 7)  
-**Out of scope** – bullets of exclusions
+    **Epic Goal** – one sentence  
+    **Context** – 1-2 paragraphs linking problem & solution  
+    **Definition of Done** – bullet list  
+    **Acceptance criteria** – Given / When / Then bullets (≤ 7)  
+    **Out of scope** – bullets of exclusions
 
-Idea basis
-----------
-SUMMARY: {summary}
-DESCRIPTION: {description or '(none)'}
-"""
+    Idea basis
+    ----------
+    SUMMARY: {summary}
+    DESCRIPTION: {description or '(none)'}
+    """
     return _run(prompt)
 
 
@@ -137,3 +175,6 @@ __all__: List[str] = [
     "epic_from_idea",
     "user_stories_for_epic",
 ]
+
+
+

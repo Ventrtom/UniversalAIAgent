@@ -19,7 +19,7 @@ ALL_TOOLS : list[StructuredTool]
 """
 from __future__ import annotations
 
-from typing import List
+from typing import List, Literal
 
 from langchain.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -48,9 +48,25 @@ class EnhanceIdeaInput(BaseModel):
             "We should investigate sensor trends, forecast failures and schedule maintenance."
         ],
     )
+    audience: Literal["business", "technical", "mixed"] = Field(
+        default="mixed",
+        description="Target audience that will read the Idea (affects tone).",
+        examples=["business"],
+    )
+    max_words: int | None = Field(
+        default=360,
+        description="Hard limit for total word count of the generated description.",
+        examples=[100],
+    )
 
 
-def _enhance_idea_tool(*, summary: str, description: str | None = None) -> str:
+def _enhance_idea_tool(
+    *,
+    summary: str,
+    description: str | None = None,
+    audience: str = "mixed",
+    max_words: int | None = 120,
+    ) -> str:
     """Convert a rough product idea into a polished **Jira Idea** ticket body.
 
     Output format (Markdown):
@@ -61,15 +77,32 @@ def _enhance_idea_tool(*, summary: str, description: str | None = None) -> str:
 
     Always writes in professional British English, avoids fluff, and
     adheres to company style (second-level headings, max 5 ACs)."""
-    return _enhance_idea(summary, description)
+
+    return _enhance_idea(
+        summary=summary,
+        description=description,
+        audience=audience,
+        max_words=max_words or 120,
+    )
 
 
 enhance_idea_tool = StructuredTool.from_function(
     name="enhance_idea",
     description=(
-        "Draft a well-structured *Idea* description for Jira in Markdown. "
-        "Use when you have a short, raw idea that needs to be turned into a "
-        "ticket the team can evaluate."
+        "Transform a **raw product idea** (summary + optional notes) into a concise, "
+        "board-ready *Jira Idea* body in Markdown.\n\n"
+        "**When to call**  • Any time stakeholder wording is informal, incomplete, "
+        "in Czech, or otherwise unfit for an executive audience.\n\n"
+        "**Output**  • Four second-level headings — *Problem*, *Proposed solution*, "
+        "*Business value*, *Acceptance criteria* — in professional British English, "
+        "capped at `max_words` (default 360).\n\n"
+        "**Args**\n"
+        " • `summary` (STR, required) – one-line tagline.\n"
+        " • `description` (STR, optional) – stakeholder context.\n"
+        " • `audience` (ENUM) – \"business\", \"technical\", or \"mixed\"; "
+        "controls tone and terminology.\n"
+        " • `max_words` (INT) – hard length limit.\n\n"
+        "Avoid jargon, keep headings exactly as above, respect the word limit."
     ),
     func=_enhance_idea_tool,
     args_schema=EnhanceIdeaInput,
