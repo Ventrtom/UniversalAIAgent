@@ -144,6 +144,7 @@ def _user_stories_for_epic_tool(
 
     For each story:
     - Title
+    - One-paragraf abstract
     - ‘As a … I want … so that …’
     - Acceptance criteria (G/W/T)
     - T-shirt estimate"""
@@ -153,8 +154,14 @@ def _user_stories_for_epic_tool(
 user_stories_for_epic_tool = StructuredTool.from_function(
     name="user_stories_for_epic",
     description=(
-        "Break an Epic into a list of INVEST-ready User Stories, each with an "
-        "estimate and acceptance criteria."
+        """Generate INVEST-compliant **User Stories** for the given epic in czech language.
+
+        For each story:
+        - Title
+        - One-paragraf abstract
+        - ‘As a … I want … so that …’
+        - Acceptance criteria (G/W/T)
+        - T-shirt estimate"""
     ),
     func=_user_stories_for_epic_tool,
     args_schema=UserStoriesForEpicInput,
