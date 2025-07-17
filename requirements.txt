@@ -14,3 +14,4 @@ gradio
 pytest
 chromadb>=0.4.29
 unstructured
+jinja2>=3.1

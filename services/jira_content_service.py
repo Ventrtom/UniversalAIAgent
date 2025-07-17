@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import os
 import openai
+from pathlib import Path
 from typing import List
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from langchain_openai import ChatOpenAI
 
@@ -29,33 +31,22 @@ _TEMPERATURE = float(os.getenv("JIRA_CONTENT_TEMPERATURE", "0.2"))
 
 _llm = ChatOpenAI(model=_MODEL, temperature=_TEMPERATURE)
 
+# ── Jinja2 prostředí pro šablony ────────────────────────────────────────────
+_PROMPT_ENV = Environment(
+    loader=FileSystemLoader(Path(__file__).resolve().parent.parent / "prompts"),
+    autoescape=select_autoescape(disabled_extensions=("jinja2",)),
+    trim_blocks=True,
+    lstrip_blocks=True,
+)
+
+def _render(name: str, **kwargs) -> str:
+    """Vyrenderuj zadanou .jinja2 šablonu s parametry."""
+    return _PROMPT_ENV.get_template(name).render(**kwargs)
 
 # ── Internal helper ───────────────────────────────────────────────────────────
 def _run(prompt: str) -> str:
     """Call the LLM synchronously and return trimmed text."""
     return _llm.invoke(prompt).content.strip()
-
-
-# ── Prompt templates ────────────────────────────────────────────────────────
-
-# Few-shot příklad – udává strukturu i tón
-_IDEA_EXAMPLE: str = """
-## Problem
-Our maintenance costs grew 15 % YoY due to frequent unplanned packaging-line stops.  
-
-## Proposed solution
-Monitor vibration and temperature, predict failures 48 h ahead and auto-schedule maintenance.  
-
-## Business value
-- Reduce downtime by 10 h / month  
-- Save €30 k per quarter  
-
-## Acceptance criteria
-- **Given** line sensors are online  
-- **When** a failure probability > 70% is detected  
-- **Then** a work order is created and maintenance slot reserved
-"""  
-# (konec example)
 
 
 # ── High-level generators ─────────────────────────────────────────────────────
@@ -66,48 +57,20 @@ def enhance_idea(
     max_words: int = 360,
     ) -> str:
 
-    # ── dynamické systémové instrukce podle publika a délky ───────────────
-    _audience_map = {
-        "business": "executives and sales",
-        "technical": "engineering teams",
-        "mixed": "cross-functional stakeholders",
-    }
-    audience_phrase = _audience_map.get(audience, "cross-functional stakeholders")
-
-    _IDEA_SYSTEM_TMPL = (
-        "You are a senior product manager writing short, board-ready Jira Idea "
-        "descriptions. Audience: {audience_phrase}. Tone: plain, concise, "
-        "British English. Limit the whole output to ≤ {max_words} words. "
-        "Highlight the core insight in the first sentence. Use exactly the "
-        "section headings shown in the example."
+    prompt = _render(
+        "idea.jinja2",
+        summary=summary,
+        description=description,
+        audience=audience,
+        max_words=max_words,
     )
-    idea_system = _IDEA_SYSTEM_TMPL.format(
-        audience_phrase=audience_phrase, max_words=max_words
-    )
-
-    """
-    Turn a raw *Idea* (summary + optional description) into
-    a polished, well-structured Markdown body ready for Jira.
-    """
-    prompt = f"""
-        {idea_system}
-
-        {_IDEA_EXAMPLE}
-
-        ### Raw Idea
-        SUMMARY: {summary}
-        DESCRIPTION: {description or '(none)'}
-
-        ### Task
-        Rewrite the Raw Idea into a polished Jira Idea description using the **same four headings** "
-        (Problem, Proposed solution, Business value, Acceptance criteria). "
-        Use active voice, avoid jargon and filler, keep total length ≤ {max_words} words.
-        """
-
     return _run(prompt)
 
 
-def epic_from_idea(summary: str, description: str | None = None) -> str:
+def epic_from_idea(
+        summary: str,
+        description: str | None = None
+        ) -> str:
     """
     Scale an Idea into a **Jira Epic**.  Outputs Markdown containing:
       • Epic Goal
@@ -116,24 +79,11 @@ def epic_from_idea(summary: str, description: str | None = None) -> str:
       • Acceptance criteria
       • Out of scope
     """
-    prompt = f"""
-    You are an agile product owner.
-
-    Create a **Jira Epic** draft in English from the Idea below.
-    Use clear, specific language (avoid adjectives like "great").
-    Return Markdown in this order:
-
-    **Epic Goal** – one sentence  
-    **Context** – 1-2 paragraphs linking problem & solution  
-    **Definition of Done** – bullet list  
-    **Acceptance criteria** – Given / When / Then bullets (≤ 7)  
-    **Out of scope** – bullets of exclusions
-
-    Idea basis
-    ----------
-    SUMMARY: {summary}
-    DESCRIPTION: {description or '(none)'}
-    """
+    prompt = _render(
+        "epic.jinja2",
+        summary=summary,
+        description=description,
+    )
     return _run(prompt)
 
 
@@ -147,26 +97,12 @@ def user_stories_for_epic(
     Each story includes title, user-story sentence, acceptance criteria
     and a T-shirt-size estimate.
     """
-    prompt = f"""
-You are an agile coach.
-
-Draft **{count} independent user stories** derived from the Epic below.
-
-EPIC NAME: {epic_name}
-
-EPIC DESCRIPTION:
-{epic_description}
-
-Output for each story:
-
-### <Story Title>
-**User story**: As a <persona> I want … so that …  
-**Acceptance criteria**
-- Given / When / Then bullets  
-**Estimate**: <S / M / L>
-
-Ensure every story is INVEST-ready and uses professional English.
-"""
+    prompt = _render(
+        "user_stories.jinja2",
+        epic_name=epic_name,
+        epic_description=epic_description,
+        count=count,
+    )
     return _run(prompt)
 
 
