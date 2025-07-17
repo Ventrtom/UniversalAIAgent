@@ -9,9 +9,10 @@ python-dotenv
 pydantic
 duckduckgo-search
 tavily-python
-atlassian-python-api>=4.0.4
+atlassian-python-api
 gradio
 pytest
-chromadb>=0.4.29
+chromadb
 unstructured
-jinja2>=3.1
+jinja2
+langgraph
