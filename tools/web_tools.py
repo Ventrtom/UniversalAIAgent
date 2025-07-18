@@ -38,6 +38,7 @@ search_tool = Tool(
         semantic ranking.
         """
     ),
+    handle_tool_error=True,
 )
 
 # ───────────────────────── Wikipedia Snippet ─────────────────────────────────
@@ -61,6 +62,7 @@ wiki_tool = Tool(
         Plain-text summary (no infobox tables or references).
         """
     ),
+    handle_tool_error=True,
 )
 
 # ───────────────────────── Tavily Semantic Search ────────────────────────────
@@ -112,6 +114,7 @@ tavily_tool = Tool(
         reports it is unavailable.
         """
     ),
+    handle_tool_error=True,
 )
 
 __all__ = ["search_tool", "wiki_tool", "tavily_tool"]

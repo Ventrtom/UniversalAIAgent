@@ -47,6 +47,7 @@ process_input_tool = Tool(
         available to the retrieval pipeline or asks “what did I just upload?”.
         """
     ),
+    handle_tool_error=True,
 )
 
 __all__ = ["process_input_tool"]

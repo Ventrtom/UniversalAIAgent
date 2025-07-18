@@ -57,6 +57,7 @@ save_tool = Tool(
         back to Jira/Drive.
         """
     ),
+    handle_tool_error=True,
 )
 
 # ───────────────────────── RAG Retriever over Chroma ─────────────────────────
@@ -97,6 +98,7 @@ rag_tool = Tool(
         to ground an answer before calling an LLM.
         """
     ),
+    handle_tool_error=True,
 )
 
 __all__ = ["save_tool", "rag_tool"]

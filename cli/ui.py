@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import gradio as gr
+import textwrap
 import json
 import os
 import pathlib
 import re
 import warnings
+import logging
+from typing import Optional, List, Dict, Any, Tuple
 
-import gradio as gr
-
-from agent import handle_query
+from agent import handle_query, handle_query_stream, ResearchResponse
 
 warnings.filterwarnings("ignore", message=".*LangChainDeprecationWarning.*")
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "false")
@@ -26,13 +28,18 @@ def list_files() -> list[str]:
 
 def read_file(fname: str) -> str:
     path = OUTPUT_DIR / fname
+    if not fname:
+        return ""
     try:
         return path.read_text("utf-8")
     except (UnicodeDecodeError, FileNotFoundError):
         return f"[Nelze zobrazit: binární nebo neexistuje] {fname}"
 
 
-def file_path(fname: str) -> str | None:
+def file_path(fname: str | None) -> str | None:
+    """Vrátí plnou cestu k výstupnímu souboru, nebo None, pokud není zadán."""
+    if not fname:
+        return None
     p = OUTPUT_DIR / fname
     return str(p) if p.exists() else None
 
@@ -62,27 +69,41 @@ def pretty(raw: str) -> str:
     return summary + ("\n\n" + "\n".join(extras) if extras else "")
 
 
-async def chat_fn(msg, history):
+async def chat_fn(msg, history, reveal=False):
     history = history or []
     history.append({"role": "user", "content": msg})
 
-    loop = asyncio.get_event_loop()
-    raw = await loop.run_in_executor(None, lambda: handle_query(msg))
-    history.append({"role": "assistant", "content": pretty(raw)})
-    return history, history
+    bot = {"role": "assistant", "content": ""}
+    history.append(bot)
+
+    async for tok in handle_query_stream(msg):
+        bot["content"] += tok
+        yield history, history
+
+    raw_json = bot["content"].splitlines()[-1]
+    parsed = ResearchResponse.parse_raw(raw_json)
+    bot["content"] = textwrap.fill(parsed.answer, 100)
+    if reveal and parsed.intermediate_steps:
+        bot["content"] += "\n\n**Intermediate steps:**\n" + "\n".join(parsed.intermediate_steps)
+    yield history, history
 
 
 def file_selected(fname):
+    """Callback dropdownu: naplní náhled a zobrazí tlačítko pro stažení."""
+    if not fname:                               # nic nevybráno → vyčisti UI
+        return "", gr.update(visible=False)
     path = file_path(fname)
     preview = read_file(fname)
     try:
         file_update = gr.File.update(value=path, visible=bool(path))
-    except AttributeError:
+    except AttributeError:                      # Gradio < 4.0
         file_update = gr.update(value=path, visible=bool(path))
     return preview, file_update
 
 
 def trigger_download(fname):
+    if not fname:
+        return gr.update(visible=False)
     path = file_path(fname)
     try:
         return gr.File.update(value=path, visible=bool(path))
@@ -92,13 +113,17 @@ def trigger_download(fname):
 
 def launch() -> None:
     with gr.Blocks(title="Universal AI Agent") as demo:
-        gr.Markdown("## 💬 AI Agent • 🗂 Output soubory")
+        gr.Markdown("## AI Agent • Output soubory")
 
         with gr.Row():
             with gr.Column(scale=3):
-                chatbot = gr.Chatbot(type="messages", height=420)
-                msg = gr.Textbox(lines=2, placeholder="Zadej dotaz… (Ctrl+Enter)")
-                msg.submit(chat_fn, [msg, chatbot], [chatbot, chatbot]).then(lambda: "", None, msg)
+                chatbot = gr.Chatbot(type="messages", height=500)
+                with gr.Row():
+                    msg = gr.Textbox(lines=2, scale=10, placeholder="Zadej dotaz… (Shift+Enter)")
+                    reveal = gr.Checkbox(label="🔍 Reveal steps")
+                msg.submit(
+                        chat_fn, [msg, chatbot, reveal], [chatbot, chatbot]
+                    ).then(lambda: "", None, msg)
 
             with gr.Column():
                 files = gr.Dropdown(choices=list_files(), label="Output soubory", interactive=True)

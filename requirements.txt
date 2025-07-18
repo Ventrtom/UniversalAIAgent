@@ -16,3 +16,5 @@ chromadb
 unstructured
 jinja2
 langgraph
+importlib
+logging

@@ -89,6 +89,7 @@ jira_ideas = StructuredTool.from_function(
         """
     ),
     args_schema=JiraIdeasInput,
+    handle_tool_error=True,
 )
 
 # ───────────────────────── Jira Issue Detail ─────────────────────────────────--
@@ -208,6 +209,7 @@ jira_issue_detail = StructuredTool.from_function(
         """
     ),
     args_schema=JiraIssueDetailInput,
+    handle_tool_error=True,
 )
 
 # ─────────────── Jira Duplicate-Idea Checker (Structured) --------------------
@@ -269,6 +271,7 @@ jira_duplicates = StructuredTool.from_function(
         """
     ),
     args_schema=DuplicateIdeasInput,
+    handle_tool_error=True,
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -387,6 +390,7 @@ jira_update_description = StructuredTool.from_function(
         """
     ),
     args_schema=UpdateDescriptionInput,
+    handle_tool_error=True,
 )
 
 
@@ -444,6 +448,7 @@ jira_child_issues = StructuredTool.from_function(
         """
     ),
     args_schema=ChildIssuesInput,
+    handle_tool_error=True,
 )
 
 # ───────────────────── JIRA Issue-Links Explorer ────────────────────────
@@ -517,6 +522,7 @@ jira_issue_links = StructuredTool.from_function(
         """
     ),
     args_schema=IssueLinksInput,
+    handle_tool_error=True,
 )
 
 

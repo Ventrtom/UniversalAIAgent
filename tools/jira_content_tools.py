@@ -106,6 +106,7 @@ enhance_idea_tool = StructuredTool.from_function(
     ),
     func=_enhance_idea_tool,
     args_schema=EnhanceIdeaInput,
+    handle_tool_error=True,
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -146,6 +147,7 @@ epic_from_idea_tool = StructuredTool.from_function(
     ),
     func=_epic_from_idea_tool,
     args_schema=EpicFromIdeaInput,
+    handle_tool_error=True,
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -198,6 +200,7 @@ user_stories_for_epic_tool = StructuredTool.from_function(
     ),
     func=_user_stories_for_epic_tool,
     args_schema=UserStoriesForEpicInput,
+    handle_tool_error=True,
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
