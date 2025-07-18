@@ -91,7 +91,6 @@ def pretty_format_response(raw: str) -> str:
     
     return summary + ("\n\n" + "\n".join(extras) if extras else "")
 
-
 def limit_history(history: List[Dict[str, Any]], max_length: int = MAX_HISTORY_LENGTH) -> List[Dict[str, Any]]:
     """Limit chat history length to prevent memory issues."""
     if len(history) <= max_length:
@@ -159,6 +158,7 @@ def format_intermediate_steps(steps: List[Any]) -> str:
     
     return system_messages + recent_messages
 
+
 async def chat_fn(msg: str, history: Optional[List[Dict[str, Any]]], reveal: bool = False) -> AsyncGenerator[Tuple[List[Dict[str, Any]], List[Dict[str, Any]]], None]:
     """Handle chat interaction with proper error handling."""
     if not msg.strip():
@@ -182,6 +182,9 @@ async def chat_fn(msg: str, history: Optional[List[Dict[str, Any]]], reveal: boo
         try:
             raw_json = bot["content"].splitlines()[-1]
             parsed = ResearchResponse.parse_raw(raw_json)
+            
+            # Don't use textwrap.fill() as it breaks markdown formatting
+            # Instead, preserve original formatting from LLM
             bot["content"] = parsed.answer
             
             if reveal and parsed.intermediate_steps:
@@ -235,9 +238,41 @@ def launch() -> None:
     .chat-message {
         margin: 10px 0;
     }
+    .chat-message ul, .chat-message ol {
+        margin: 10px 0;
+        padding-left: 20px;
+    }
+    .chat-message li {
+        margin: 5px 0;
+        line-height: 1.5;
+    }
+    .chat-message p {
+        margin: 8px 0;
+        line-height: 1.6;
+    }
     .file-preview {
         font-family: monospace;
         font-size: 12px;
+    }
+    /* Better markdown formatting */
+    .chatbot .message {
+        white-space: pre-wrap;
+    }
+    /* Intermediate steps styling */
+    .intermediate-steps {
+        background-color: #f8f9fa;
+        border-left: 4px solid #007bff;
+        padding: 12px;
+        margin: 10px 0;
+        border-radius: 4px;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    .tool-call {
+        background-color: #e3f2fd;
+        padding: 6px 10px;
+        border-radius: 3px;
+        margin: 4px 0;
+        font-family: 'Courier New', monospace;
     }
     """
     
@@ -248,7 +283,7 @@ def launch() -> None:
     ) as demo:
         gr.Markdown(
             "## 🤖 Universal AI Agent\n"
-            "Inteligentní asistent pro výzkum a analýzu dat"
+            "Inteligentní asistent pro produktový management"
         )
 
         with gr.Row():
@@ -259,8 +294,8 @@ def launch() -> None:
                     label="Konverzace",
                     show_copy_button=True,
                     elem_classes=["chat-message"],
-                    line_breaks=True,
-                    sanitize_html=False
+                    line_breaks=True,  # Enable proper line break handling
+                    sanitize_html=False  # Allow better markdown formatting
                 )
                 
                 with gr.Row():
@@ -278,7 +313,7 @@ def launch() -> None:
                 with gr.Row():
                     reveal = gr.Checkbox(
                         label="🔍 Zobrazit kroky zpracování",
-                        info="Ukáže detaily o tom, jak agent zpracovával váš dotaz"
+                        info="Ukáže detaily o nástrojích a krocích, které agent použil při zpracování dotazu"
                     )
 
             with gr.Column(scale=2):
