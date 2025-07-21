@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from typing import TypedDict
+import threading
 
 from dotenv import load_dotenv
 import openai
@@ -82,13 +83,39 @@ if hasattr(openai, "telemetry") and hasattr(openai.telemetry, "TelemetryClient")
 # ---------------------------------------------------------------------------
 # Vectorstore (shared long‑term memory)
 # ---------------------------------------------------------------------------
-CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "rag_chroma_db")
+CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "data")
 _embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-_vectorstore = Chroma(
+
+# Two separate collections: external knowledge base and chat memory
+_kb_store = Chroma(
+    collection_name="kb_docs",
     persist_directory=CHROMA_DIR,
     embedding_function=_embeddings,
     client_settings=Settings(anonymized_telemetry=False),
 )
+
+# Ensure all knowledge documents include metadata source="doc"
+_kb_add_documents_orig = _kb_store.add_documents
+
+def _kb_add_documents_with_source(docs, **kwargs):
+    wrapped = []
+    for d in docs:
+        meta = dict(d.metadata or {})
+        meta.setdefault("source", "doc")
+        wrapped.append(Document(page_content=d.page_content, metadata=meta))
+    return _kb_add_documents_orig(wrapped, **kwargs)
+
+_kb_store.add_documents = _kb_add_documents_with_source
+
+_chat_store = Chroma(
+    collection_name="chat_memory",
+    persist_directory=CHROMA_DIR,
+    embedding_function=_embeddings,
+    client_settings=Settings(anonymized_telemetry=False),
+)
+
+# Backwards compatibility – old name points to the KB collection
+_vectorstore = _kb_store
 
 # ---------------------------------------------------------------------------
 # Multi‑tier memory configuration
@@ -108,7 +135,20 @@ _persistent_history_file = os.getenv(
     "PERSISTENT_HISTORY_FILE",
     "persistent_chat_history.json"
     )
+
 _short_term_memory.chat_memory = FileChatMessageHistory(file_path=_persistent_history_file)
+
+QUERY_TIME_THRESHOLD = int(os.getenv("QUERY_TIME_THRESHOLD", 120))
+
+# Time of the last user query (used for heuristic routing)
+_last_user_ts = datetime.utcnow().timestamp()
+_ts_lock = threading.Lock()
+
+
+def _update_last_user_ts() -> None:
+    with _ts_lock:
+        global _last_user_ts
+        _last_user_ts = datetime.utcnow().timestamp()
 
 # --- Node 4: Response (structured response in JSON) ------------------------------------
 class ResearchResponse(BaseModel):
@@ -193,9 +233,23 @@ class AgentState(TypedDict):
     retrieved_context: str
 
 # --- Node 1: Retrieve relevant long‑term memory --------------------------------
+def _is_information_query(query: str) -> bool:
+    """Heuristic check whether the query is a standalone information request."""
+    q = query.lower().strip()
+    info_words = ("what", "why", "how", "where", "when", "who")
+    return any(q.startswith(w) for w in info_words) or "?" in q
+
+
 def recall(state: AgentState) -> AgentState:
-    """Vyhledá vektorově relevantní minulou konverzaci / znalosti."""
-    docs = _vectorstore.similarity_search(state["query"], k=4)
+    """Vyhledá vektorově relevantní kontext z odpovídající kolekce."""
+    query = state["query"]
+    with _ts_lock:
+        since_last = datetime.utcnow().timestamp() - _last_user_ts
+
+    use_kb = _is_information_query(query) or since_last > QUERY_TIME_THRESHOLD
+    store = _kb_store if use_kb else _chat_store
+
+    docs = store.similarity_search(query, k=4)
     state["retrieved_context"] = "\n".join(d.page_content for d in docs)
     return state
 
@@ -235,12 +289,18 @@ def act(state: AgentState) -> AgentState:
 
 # --- Node 3: Learn (append to vectorstore) ------------------------------------
 def learn(state: AgentState) -> AgentState:
-    """Zapíše dialog do dlouhodobé paměti Po každém běhu."""
+    """Zapíše dialog do dlouhodobé paměti po každém běhu."""
     ts = datetime.utcnow().isoformat()
-    _vectorstore.add_documents(
+    _chat_store.add_documents(
         [
-            Document(page_content=f"USER: {state['query']}", metadata={"role": "user", "ts": ts}),
-            Document(page_content=f"ASSISTANT: {state['answer']}", metadata={"role": "assistant", "ts": ts}),
+            Document(
+                page_content=f"USER: {state['query']}",
+                metadata={"role": "user", "ts": ts, "source": "chat"},
+            ),
+            Document(
+                page_content=f"ASSISTANT: {state['answer']}",
+                metadata={"role": "assistant", "ts": ts, "source": "chat"},
+            ),
         ]
     )
     return state
@@ -276,7 +336,9 @@ workflow = graph.compile()
 def handle_query(query: str) -> str:
     """Jediný veřejný vstup: zpracuje dotaz a vrátí odpověď."""
     final = workflow.invoke({"query": query, "answer": "", "intermediate_steps": [], "retrieved_context": ""})
-    return _final_to_json(final)
+    result = _final_to_json(final)
+    _update_last_user_ts()
+    return result
 
 # -------- STREAMING (yielduje JSON lines) ------------------------------------
 async def handle_query_stream(query: str):
@@ -311,6 +373,7 @@ async def handle_query_stream(query: str):
         )
 
     yield "\n" + _final_to_json(final_state)
+    _update_last_user_ts()
 
 # Convenience alias pro případné externí diagnostiky
 agent_workflow = workflow
