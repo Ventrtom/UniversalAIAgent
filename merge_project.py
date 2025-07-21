@@ -4,7 +4,8 @@ import os
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))  # Hlavní složka projektu
 OUTPUT_FILE = os.path.join(ROOT_DIR, "project_snapshot.md")
 
-EXCLUDE_FOLDERS = {'.git', '__pycache__', '.venv', 'venv', 'input','output', 'rag_chroma_db'}
+CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "data")
+EXCLUDE_FOLDERS = {'.git', '__pycache__', '.venv', 'venv', 'input', 'output', CHROMA_DIR, 'rag_chroma_db'}
 EXCLUDE_FILES = {'project_snapshot.md', 'merge_project.py', '.env', '.png'}
 
 def should_exclude(path: str, exclude_set: set) -> bool:

@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 # ── Suppress Chroma telemetry errors ──────────────────────────────────────────
 # Must be set before importing Chroma
 os.environ["CHROMA_TELEMETRY"] = "0"
+CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "data")
 
 from langchain_community.document_loaders import ConfluenceLoader
 from langchain_openai import OpenAIEmbeddings
@@ -55,7 +56,7 @@ def main():
     # ── Prepare embeddings & vectorstore ────────────────────────────────────────
     embeddings = OpenAIEmbeddings()
     vectorstore = Chroma(
-        persist_directory="rag_chroma_db",
+        persist_directory=CHROMA_DIR,
         embedding_function=embeddings
     )
 

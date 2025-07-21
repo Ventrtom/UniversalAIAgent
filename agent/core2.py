@@ -16,6 +16,7 @@ import os
 from datetime import datetime
 from typing import TypedDict
 import threading
+import math
 
 from dotenv import load_dotenv
 import openai
@@ -42,6 +43,7 @@ except ImportError:
 
 # Vector store
 from langchain_chroma import Chroma
+from collections import deque
 from chromadb.config import Settings
 
 # Pydantic model
@@ -63,6 +65,7 @@ from tools import (
     jira_update_description,
     jira_child_issues,
     jira_issue_links,
+    kb_loader_tool,
 )
 
 # ---------------------------------------------------------------------------
@@ -107,7 +110,23 @@ def _kb_add_documents_with_source(docs, **kwargs):
 
 _kb_store.add_documents = _kb_add_documents_with_source
 
-_chat_store = Chroma(
+
+
+class ChatMemoryStore(Chroma):
+    """Lightweight wrapper exposing a stable count API."""
+
+    def get_total_records(self) -> int:
+        """Return number of records in this collection."""
+        try:
+            return self._collection.count()
+        except AttributeError:
+            try:
+                return self._collection._collection.count()  # type: ignore[attr-defined]
+            except Exception:
+                return 0
+
+
+_chat_store = ChatMemoryStore(
     collection_name="chat_memory",
     persist_directory=CHROMA_DIR,
     embedding_function=_embeddings,
@@ -139,16 +158,56 @@ _persistent_history_file = os.getenv(
 _short_term_memory.chat_memory = FileChatMessageHistory(file_path=_persistent_history_file)
 
 QUERY_TIME_THRESHOLD = int(os.getenv("QUERY_TIME_THRESHOLD", 120))
+MAX_CHAT_RECORDS = int(os.getenv("MAX_CHAT_RECORDS", 10_000))
+DUPLICATE_THRESHOLD = float(os.getenv("DUPLICATE_THRESHOLD", 0.95))
+
+RERANK_ALPHA = float(os.getenv("RERANK_ALPHA", 0.7))
+RERANK_BETA = float(os.getenv("RERANK_BETA", 0.25))
+RERANK_GAMMA = float(os.getenv("RERANK_GAMMA", 0.05))
+TYPE_BOOST_DOC = float(os.getenv("TYPE_BOOST_DOC", 0.1))
+TYPE_BOOST_CHAT = float(os.getenv("TYPE_BOOST_CHAT", 0.0))
+RECENCY_TAU = 30 * 24 * 3600
 
 # Time of the last user query (used for heuristic routing)
 _last_user_ts = datetime.utcnow().timestamp()
 _ts_lock = threading.Lock()
+
+# Recent user embeddings for duplicate detection
+_embedding_cache: deque[list[float]] = deque(maxlen=500)
+_cache_ready = False
 
 
 def _update_last_user_ts() -> None:
     with _ts_lock:
         global _last_user_ts
         _last_user_ts = datetime.utcnow().timestamp()
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(x * x for x in b))
+    return dot / (na * nb) if na and nb else 0.0
+
+
+def _ensure_cache() -> None:
+    """Populate embedding cache with the latest user embeddings."""
+    global _cache_ready
+    if _cache_ready:
+        return
+    try:
+        data = _chat_store.get(include=["embeddings", "metadatas"])
+        pairs = [
+            (e, m.get("ts"))
+            for e, m in zip(data.get("embeddings", []), data.get("metadatas", []))
+            if (m or {}).get("role") == "user"
+        ]
+        pairs.sort(key=lambda p: p[1] or "")
+        for emb, _ in pairs[-500:]:
+            _embedding_cache.append(emb)
+    except Exception:
+        pass
+    _cache_ready = True
 
 # --- Node 4: Response (structured response in JSON) ------------------------------------
 class ResearchResponse(BaseModel):
@@ -210,6 +269,7 @@ _TOOLS = [
     jira_update_description,
     jira_child_issues,
     jira_issue_links,
+    kb_loader_tool,
 ]
 _TOOLS = list(map(_safe, _TOOLS))
 
@@ -249,7 +309,28 @@ def recall(state: AgentState) -> AgentState:
     use_kb = _is_information_query(query) or since_last > QUERY_TIME_THRESHOLD
     store = _kb_store if use_kb else _chat_store
 
-    docs = store.similarity_search(query, k=4)
+    results = store.similarity_search_with_relevance_scores(query, k=4)
+    reranked: list[tuple[float, Document]] = []
+    now_ts = datetime.utcnow().timestamp()
+    for doc, cos in results:
+        ts_str = doc.metadata.get("ts")
+        delta = float("inf")
+        if ts_str:
+            try:
+                delta = now_ts - datetime.fromisoformat(ts_str).timestamp()
+            except Exception:
+                pass
+        recency = math.exp(-delta / RECENCY_TAU) if delta != float("inf") else 0.0
+        type_boost = TYPE_BOOST_DOC if doc.metadata.get("source") == "doc" else TYPE_BOOST_CHAT
+        score = (
+            RERANK_ALPHA * cos
+            + RERANK_BETA * recency
+            + RERANK_GAMMA * type_boost
+        )
+        reranked.append((score, doc))
+
+    reranked.sort(key=lambda x: x[0], reverse=True)
+    docs = [d for _, d in reranked]
     state["retrieved_context"] = "\n".join(d.page_content for d in docs)
     return state
 
@@ -291,18 +372,45 @@ def act(state: AgentState) -> AgentState:
 def learn(state: AgentState) -> AgentState:
     """Zapíše dialog do dlouhodobé paměti po každém běhu."""
     ts = datetime.utcnow().isoformat()
-    _chat_store.add_documents(
-        [
-            Document(
-                page_content=f"USER: {state['query']}",
-                metadata={"role": "user", "ts": ts, "source": "chat"},
-            ),
-            Document(
-                page_content=f"ASSISTANT: {state['answer']}",
-                metadata={"role": "assistant", "ts": ts, "source": "chat"},
-            ),
-        ]
-    )
+    docs = [
+        Document(
+            page_content=f"USER: {state['query']}",
+            metadata={"role": "user", "ts": ts, "source": "chat"},
+        ),
+        Document(
+            page_content=f"ASSISTANT: {state['answer']}",
+            metadata={"role": "assistant", "ts": ts, "source": "chat"},
+        ),
+    ]
+
+    try:
+        _ensure_cache()
+        new_embs = _embeddings.embed_documents([d.page_content for d in docs])
+        user_emb = new_embs[0]
+        if any(_cosine(user_emb, ex) > DUPLICATE_THRESHOLD for ex in _embedding_cache):
+            docs = [docs[1]]  # store assistant answer only
+        else:
+            _embedding_cache.append(user_emb)
+    except Exception:
+        pass
+
+    _chat_store.add_documents(docs)
+
+    try:
+        total = _chat_store.get_total_records()
+        if total > MAX_CHAT_RECORDS:
+            over = total - MAX_CHAT_RECORDS
+            res = _chat_store.get(include=["metadatas"], limit=None)
+            records = list(zip(res["ids"], res["metadatas"]))
+            records.sort(key=lambda r: r[1].get("ts", ""))
+            ids_to_del = [rid for rid, _ in records[:over]]
+            if ids_to_del:
+                _chat_store.delete(ids_to_del)
+                for _ in range(over):
+                    if _embedding_cache:
+                        _embedding_cache.popleft()
+    except Exception:
+        pass
     return state
 
 # --- Public API -------------------------------------------------------------
