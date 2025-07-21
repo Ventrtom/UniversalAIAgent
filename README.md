@@ -32,6 +32,7 @@ README.md file that needsy to be updated accordingly to current project state an
 | `tavily_search`        | LLM‑powered semantic web search (requires `TAVILY_API_KEY`).                              |
 | `save_text_to_file`    | Persist any text to `output/…` (timestamped).                                             |
 | `kb_loader`            | Import Confluence pages and new files from `input/` into the long‑term knowledge base. |
+| `clear_rag_memory`     | Delete vector‑store collections (`chat_memory`, `kb_docs` or all). |
 
 > **Planned tool** – `jira_issue_detail`: fetch a **single** Jira issue by key (e.g. `P4‑1234`) with full description, acceptance criteria, subtasks & comments.
 > *Benefit:* quick deep‑dives, faster duplicate detection.

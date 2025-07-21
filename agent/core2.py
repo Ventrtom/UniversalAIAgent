@@ -66,6 +66,7 @@ from tools import (
     jira_child_issues,
     jira_issue_links,
     kb_loader_tool,
+    clear_rag_memory_tool,
 )
 
 # ---------------------------------------------------------------------------
@@ -270,6 +271,7 @@ _TOOLS = [
     jira_child_issues,
     jira_issue_links,
     kb_loader_tool,
+    clear_rag_memory_tool,
 ]
 _TOOLS = list(map(_safe, _TOOLS))
 

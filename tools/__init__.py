@@ -17,6 +17,7 @@ from .jira_tools import (
 from .jira_content_tools import ALL_TOOLS as jira_content_tools
 from .input_loader import process_input_tool
 from .kb_tools import kb_loader_tool
+from .memory_tools import clear_rag_memory_tool
 
 __all__ = [
     "search_tool",
@@ -35,4 +36,5 @@ __all__ = [
     "jira_child_issues",
     "jira_issue_links",
     "kb_loader_tool",
+    "clear_rag_memory_tool",
 ]
