@@ -17,6 +17,7 @@ if hasattr(openai, "telemetry") and hasattr(openai.telemetry, "TelemetryClient")
     openai.telemetry.TelemetryClient.capture = lambda *_, **__: None
 
 # ───────────────────────── Helper: Robust TXT Saver ──────────────────────────
+CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "data")
 OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -61,7 +62,6 @@ save_tool = Tool(
 )
 
 # ───────────────────────── RAG Retriever over Chroma ─────────────────────────
-CHROMA_DIR = "rag_chroma_db"
 _embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 _retriever = Chroma(persist_directory=CHROMA_DIR, embedding_function=_embeddings).as_retriever(search_kwargs={"k": 4})
 

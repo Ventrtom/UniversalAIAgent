@@ -15,7 +15,6 @@ venv/
 *.log
 
 # Vector db
-rag_chroma_db/
 data/
 
 output/

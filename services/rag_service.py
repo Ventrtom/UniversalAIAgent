@@ -17,6 +17,7 @@ from langchain.schema import Document
 
 
 # ───────────────────────── Helper: Robust TXT Saver ───────────────────────────
+CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "data")
 OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -32,7 +33,7 @@ def save_text_to_file(data: str, prefix: str = "research") -> str:
 
 # ───────────────────────── Vector store builder ─────────────────────────────--
 
-def build_vectorstore(docs_path: str = "./data", persist_directory: str = "rag_chroma_db") -> None:
+def build_vectorstore(docs_path: str = "./data", persist_directory: str = CHROMA_DIR) -> None:
     """Create a Chroma vector store from text documents."""
     load_dotenv()
     loader = DirectoryLoader(docs_path, glob="**/*.txt")
@@ -44,7 +45,6 @@ def build_vectorstore(docs_path: str = "./data", persist_directory: str = "rag_c
 
 
 # ───────────────────────── RAG Retriever over Chroma ─────────────────────────-
-CHROMA_DIR = "rag_chroma_db"
 _embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 _retriever = Chroma(persist_directory=CHROMA_DIR, embedding_function=_embeddings).as_retriever(search_kwargs={"k": 4})
 
