@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 from pathlib import Path
+import os
 from typing import List
 
 from langchain_chroma import Chroma
@@ -30,7 +31,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores.utils import filter_complex_metadata
 
 # ---- konfigurace -----------------------------------------------------------
-CHROMA_DIR = "rag_chroma_db"
+CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "data")
 INPUT_DIR = Path("input")
 INPUT_DIR.mkdir(exist_ok=True)
 

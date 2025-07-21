@@ -3,7 +3,8 @@
 clear_rag_memory.py
 ===================
 
-Jednorázové promazání a/nebo validace Chroma DB ('rag_chroma_db/') používané jako RAG paměť.
+Jednorázové promazání a/nebo validace Chroma DB (adresář daný `CHROMA_DIR_V2`,
+výchozí `data/`) používané jako RAG paměť.
 
 • Smaže nebo zazálohuje DB a ověří, že po operaci nezůstaly žádné vektory.
 • Závislost na 'chromadb' je volitelná – bez ní proběhne fallback validace přes velikost souborů.
@@ -25,6 +26,7 @@ Pouhá kontrola (např. v CI)
 from __future__ import annotations
 
 import argparse
+import os
 import datetime as _dt
 import pathlib as _pl
 import shutil as _sh
@@ -37,7 +39,7 @@ except ImportError:  # pragma: no cover
     chromadb = None  # type: ignore
 
 ROOT = _pl.Path(__file__).resolve().parent
-DB_DIR = ROOT / "rag_chroma_db"
+DB_DIR = ROOT / os.getenv("CHROMA_DIR_V2", "data")
 
 
 # ------------------------------------------------------------------------------
@@ -83,9 +85,9 @@ def _validate_empty() -> bool:
 # ------------------------------------------------------------------------------
 
 def _wipe_rag_db(force: bool, backup: bool) -> None:
-    """Smaže nebo zálohuje adresář rag_chroma_db/ a pak jej znovu vytvoří."""
+    """Smaže nebo zálohuje adresář daný `CHROMA_DIR_V2` a pak jej znovu vytvoří."""
     if not DB_DIR.exists():
-        print("Adresář 'rag_chroma_db' neexistuje – RAG paměť je už prázdná.")
+        print(f"Adresář '{DB_DIR.name}' neexistuje – RAG paměť je už prázdná.")
         return
 
     if not force:
@@ -96,7 +98,7 @@ def _wipe_rag_db(force: bool, backup: bool) -> None:
 
     if backup:
         stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-        dest = DB_DIR.with_name(f"rag_chroma_db_backup_{stamp}")
+        dest = DB_DIR.with_name(f"{DB_DIR.name}_backup_{stamp}")
         _sh.move(str(DB_DIR), dest)
         print(f"Vektorová DB byla přesunuta do: {dest}")
     else:
@@ -104,7 +106,7 @@ def _wipe_rag_db(force: bool, backup: bool) -> None:
         print("Vektorová DB byla nenávratně smazána.")
 
     DB_DIR.mkdir(exist_ok=True)
-    print("Vytvořen nový prázdný 'rag_chroma_db'.")
+    print(f"Vytvořen nový prázdný '{DB_DIR.name}'.")
 
 
 # ------------------------------------------------------------------------------

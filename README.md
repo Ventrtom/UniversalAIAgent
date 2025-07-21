@@ -11,7 +11,7 @@ README.md file that needsy to be updated accordingly to current project state an
 | Category                      | Status          | Details                                                                                                                 |
 | ----------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | **Conversational interface**  | **✅**           | CLI (`main.py`) **and** lightweight Gradio UI (`ui.py`).                                                                |
-| **Knowledge retrieval (RAG)** | **✅**           | Chroma vector‑store (`rag_chroma_db/`) continuously enriched with every Q\&A turn.                                      |
+| **Knowledge retrieval (RAG)** | **✅**           | Chroma vector‑store (default `./data/`, configurable via `CHROMA_DIR_V2`) continuously enriched with every Q\&A turn.                                      |
 | **Web search**                | **✅**           | DuckDuckGo (`searchWeb`) & Wikipedia snippet tool.                                                                      |
 | **Semantic web search**       | **β**           | Tavily semantic search if `TAVILY_API_KEY` is present.                                                                  |
 | **Jira integration**          | **✅**           | `jira_ideas_retriever` – lists *Idea* issues matching an optional keyword.                                              |
@@ -95,7 +95,7 @@ TAVILY_API_KEY=""           # optional
 ├── rag_confluence_loader.py  # import Confluence pages into RAG
 ├── rag_vectorstore.py     # bulk‑import local docs into RAG
 ├── output/                # timestamped txt exports (git‑ignored)
-└── rag_chroma_db/         # vector DB (git‑ignored)
+└── data/                # vector DB (path via $CHROMA_DIR_V2)
 ```
 
 ---
