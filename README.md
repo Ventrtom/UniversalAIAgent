@@ -16,7 +16,7 @@ README.md file that needsy to be updated accordingly to current project state an
 | **Semantic web search**       | **β**           | Tavily semantic search if `TAVILY_API_KEY` is present.                                                                  |
 | **Jira integration**          | **✅**           | `jira_ideas_retriever` – lists *Idea* issues matching an optional keyword.                                              |
 | **File output**               | **✅**           | `save_text_to_file` stores each answer in a *new* timestamped file under `./output/`. Visible & downloadable in the UI. |
-| **Confluence loader**         | **✅ (offline)** | `rag_confluence_loader.py` indexes Confluence pages into RAG (manual run).                                              |
+| **Knowledge base loader**     | **✅**           | `kb_loader` tool syncs Confluence pages and local files into the knowledge base. |
 | **Continuous learning**       | **↺**           | Every chat exchange is appended to the vector store for long‑term memory.                                               |
 
 ---
@@ -31,6 +31,7 @@ README.md file that needsy to be updated accordingly to current project state an
 | `jira_ideas_retriever` | List *Ideas* from Jira project **P4**; optional `keyword` filter.                         |
 | `tavily_search`        | LLM‑powered semantic web search (requires `TAVILY_API_KEY`).                              |
 | `save_text_to_file`    | Persist any text to `output/…` (timestamped).                                             |
+| `kb_loader`            | Import Confluence pages and new files from `input/` into the long‑term knowledge base. |
 
 > **Planned tool** – `jira_issue_detail`: fetch a **single** Jira issue by key (e.g. `P4‑1234`) with full description, acceptance criteria, subtasks & comments.
 > *Benefit:* quick deep‑dives, faster duplicate detection.

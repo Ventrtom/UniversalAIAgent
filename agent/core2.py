@@ -63,6 +63,7 @@ from tools import (
     jira_update_description,
     jira_child_issues,
     jira_issue_links,
+    kb_loader_tool,
 )
 
 # ---------------------------------------------------------------------------
@@ -210,6 +211,7 @@ _TOOLS = [
     jira_update_description,
     jira_child_issues,
     jira_issue_links,
+    kb_loader_tool,
 ]
 _TOOLS = list(map(_safe, _TOOLS))
 
