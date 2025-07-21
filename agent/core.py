@@ -47,7 +47,7 @@ if hasattr(openai, "telemetry") and hasattr(openai.telemetry, "TelemetryClient")
 # ---------------------------------------------------------------------------
 # Vectorstore (RAG) setup
 # ---------------------------------------------------------------------------
-CHROMA_DIR = "rag_chroma_db"
+CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "data")
 _embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 _vectorstore = Chroma(persist_directory=CHROMA_DIR, embedding_function=_embeddings)
 
