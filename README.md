@@ -1,3 +1,5 @@
+README.md file that needsy to be updated accordingly to current project state and structure.
+
 # 🧠 Universal AI Agent (Productoo P4)
 
 *Conversational assistant for product managers, analysts and engineers working on Productoo’s P4 manufacturing suite.*
