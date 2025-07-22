@@ -50,6 +50,9 @@ from chromadb.config import Settings
 # Pydantic model
 from pydantic import BaseModel
 import json, asyncio
+import pandas as pd
+from apscheduler.schedulers.background import BackgroundScheduler
+import atexit
 
 # Project‑specific tools (identické s core.py)
 from tools import (
@@ -94,7 +97,7 @@ _embeddings = OpenAIEmbeddings(model="text-embedding-3-small", async_mode=True)
 # Two separate collections: external knowledge base and chat memory
 _kb_store = Chroma(
     collection_name="kb_docs",
-    persist_directory=CHROMA_DIR,
+    persist_directory=None,
     embedding_function=_embeddings,
     client_settings=Settings(anonymized_telemetry=False),
 )
@@ -130,7 +133,7 @@ class ChatMemoryStore(Chroma):
 
 _chat_store = ChatMemoryStore(
     collection_name="chat_memory",
-    persist_directory=CHROMA_DIR,
+    persist_directory=None,
     embedding_function=_embeddings,
     client_settings=Settings(anonymized_telemetry=False),
 )
@@ -219,6 +222,42 @@ def _ensure_cache() -> None:
 
 import threading
 threading.Thread(target=_ensure_cache, daemon=True).start()
+
+# ---------------------------------------------------------------------------
+# Periodic snapshotting of chat memory
+# ---------------------------------------------------------------------------
+SNAPSHOT_PATH = os.getenv("CHAT_SNAPSHOT_FILE", "data/chat_snapshot.parquet")
+SNAPSHOT_INTERVAL = int(os.getenv("CHAT_SNAPSHOT_INTERVAL", 600))
+
+
+def _snapshot_chat() -> None:
+    """Persist chat vectors and metadata to a Parquet file."""
+    try:
+        data = _chat_store.get(include=["documents", "metadatas"], limit=None)
+        rows = [
+            {
+                "id": i,
+                "document": doc,
+                **(meta or {}),
+            }
+            for i, doc, meta in zip(
+                data.get("ids", []),
+                data.get("documents", []),
+                data.get("metadatas", []),
+            )
+        ]
+        if rows:
+            os.makedirs(os.path.dirname(SNAPSHOT_PATH), exist_ok=True)
+            pd.DataFrame(rows).to_parquet(SNAPSHOT_PATH, index=False)
+    except Exception:
+        pass
+
+
+_scheduler = BackgroundScheduler(daemon=True)
+_scheduler.add_job(_snapshot_chat, "interval", seconds=SNAPSHOT_INTERVAL)
+_scheduler.start()
+atexit.register(lambda: _scheduler.shutdown(wait=False))
+atexit.register(_snapshot_chat)
 
 # --- Node 4: Response (structured response in JSON) ------------------------------------
 class ResearchResponse(BaseModel):
