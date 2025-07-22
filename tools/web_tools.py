@@ -6,6 +6,7 @@ from langchain.tools import Tool
 from langchain_community.tools import DuckDuckGoSearchRun, WikipediaQueryRun
 from langchain_community.utilities import WikipediaAPIWrapper
 from tavily import TavilyClient
+import httpx
 
 # Opt‑out from OpenAI telemetry
 os.environ.setdefault("OPENAI_TELEMETRY", "0")
@@ -72,12 +73,15 @@ if _TAVILY_KEY:
     _client = TavilyClient(api_key=_TAVILY_KEY)
 
 
-def _tavily_search(query: str) -> str:
+async def _tavily_search(query: str) -> str:
     if _client is None:
         return "Tavily není nakonfigurováno (chybí TAVILY_API_KEY)."
 
     try:
-        raw = _client.search(query=query, max_results=6)
+        async with httpx.AsyncClient(base_url=_client.base_url, headers=_client.headers, proxies=_client.proxies) as hc:
+            resp = await hc.post("/search", json={"query": query, "max_results": 6})
+            resp.raise_for_status()
+            raw = resp.json()
     except Exception as exc:  # pragma: no cover - external call
         return f"Tavily search selhalo: {exc}"
 
@@ -91,7 +95,7 @@ def _tavily_search(query: str) -> str:
 
 tavily_tool = Tool(
     name="tavily_search",
-    func=_tavily_search,
+    coroutine=_tavily_search,
     description=(
         """
         Purpose

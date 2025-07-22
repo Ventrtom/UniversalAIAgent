@@ -20,6 +20,7 @@ ALL_TOOLS : list[StructuredTool]
 from __future__ import annotations
 
 from typing import List, Literal
+import asyncio
 
 from langchain.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -60,7 +61,7 @@ class EnhanceIdeaInput(BaseModel):
     )
 
 
-def _enhance_idea_tool(
+async def _enhance_idea_tool(
     *,
     summary: str,
     description: str | None = None,
@@ -78,7 +79,8 @@ def _enhance_idea_tool(
     Always writes in professional British English, avoids fluff, and
     adheres to company style (second-level headings, max 5 ACs)."""
 
-    return _enhance_idea(
+    return await asyncio.to_thread(
+        _enhance_idea,
         summary=summary,
         description=description,
         audience=audience,
@@ -88,6 +90,7 @@ def _enhance_idea_tool(
 
 enhance_idea_tool = StructuredTool.from_function(
     name="enhance_idea",
+    coroutine=_enhance_idea_tool,
     description=(
         "Transform a **raw product idea** (summary + optional notes) into a concise, "
         "board-ready *Jira Idea* body in Markdown.\n\n"
@@ -125,7 +128,7 @@ class EpicFromIdeaInput(BaseModel):
     )
 
 
-def _epic_from_idea_tool(*, summary: str, description: str | None = None) -> str:
+async def _epic_from_idea_tool(*, summary: str, description: str | None = None) -> str:
     """Produce a complete **Jira Epic** template in Markdown.
 
     Sections:
@@ -136,7 +139,7 @@ def _epic_from_idea_tool(*, summary: str, description: str | None = None) -> str
     - Out of scope
 
     The text is direct, neutral, no marketing adjectives."""
-    return _epic_from_idea(summary, description)
+    return await asyncio.to_thread(_epic_from_idea, summary, description)
 
 
 epic_from_idea_tool = StructuredTool.from_function(
@@ -145,7 +148,7 @@ epic_from_idea_tool = StructuredTool.from_function(
         "Expand a validated Idea into a comprehensive *Epic* draft "
         "ready for backlog refinement, with DoD & ACs."
     ),
-    func=_epic_from_idea_tool,
+    coroutine=_epic_from_idea_tool,
     args_schema=EpicFromIdeaInput,
     handle_tool_error=True,
 )
@@ -172,7 +175,7 @@ class UserStoriesForEpicInput(BaseModel):
     )
 
 
-def _user_stories_for_epic_tool(
+async def _user_stories_for_epic_tool(
     *, epic_name: str, epic_description: str, count: int = 5
 ) -> str:
     """Generate INVEST-compliant **User Stories** for the given epic in czech language.
@@ -183,7 +186,7 @@ def _user_stories_for_epic_tool(
     - ‘As a … I want … so that …’
     - Acceptance criteria (G/W/T)
     - T-shirt estimate"""
-    return _user_stories_for_epic(epic_name, epic_description, count)
+    return await asyncio.to_thread(_user_stories_for_epic, epic_name, epic_description, count)
 
 
 user_stories_for_epic_tool = StructuredTool.from_function(
@@ -198,7 +201,7 @@ user_stories_for_epic_tool = StructuredTool.from_function(
         - Acceptance criteria (G/W/T)
         - T-shirt estimate"""
     ),
-    func=_user_stories_for_epic_tool,
+    coroutine=_user_stories_for_epic_tool,
     args_schema=UserStoriesForEpicInput,
     handle_tool_error=True,
 )
