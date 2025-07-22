@@ -153,7 +153,7 @@ _short_term_memory = ConversationBufferWindowMemory(
 # 2) Persistent chat log (restored across restarts → feeds the window buffer)
 _persistent_history_file = os.getenv(
     "PERSISTENT_HISTORY_FILE",
-    "persistent_chat_history.json"
+    "data/persistent_chat_history.json"
     )
 
 _short_term_memory.chat_memory = FileChatMessageHistory(file_path=_persistent_history_file)

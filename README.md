@@ -14,7 +14,7 @@ Conversational assistant tailored for **Productoo's P4** platform. It leverages 
 | **Jira integration** | Tools for listing Ideas, fetching issue detail, checking duplicates and updating descriptions. |
 | **Content generators** | Create Jira Ideas, Epics and User Stories from short prompts. |
 | **File ingestion** | Drop files into `./input` and import them with `process_input_files` or `kb_loader`. |
-| **Persistent memory** | Chat history saved to `persistent_chat_history.json` and stored in the vector DB. |
+| **Persistent memory** | Chat history saved to `data/persistent_chat_history.json` and stored in the vector DB. |
 
 ---
 
@@ -78,7 +78,7 @@ Key environment options:
 
 - `CHROMA_DIR_V2` – path to the Chroma persistence directory (default `data/`).
 - `AGENT_VERSION` – set to `v1` to use the older LangChain core; default `v2` uses LangGraph.
-- `PERSISTENT_HISTORY_FILE` – JSON file storing chat history (default `persistent_chat_history.json`).
+- `PERSISTENT_HISTORY_FILE` – JSON file storing chat history (default `data/persistent_chat_history.json`).
 
 ---
 
