@@ -11,6 +11,7 @@ import pathlib
 import re
 import warnings
 import logging
+import functools
 from typing import Optional, List, Dict, Any, Tuple, AsyncGenerator
 
 from agent import handle_query, handle_query_stream, ResearchResponse
@@ -152,15 +153,6 @@ def format_intermediate_steps(steps: List[Any]) -> str:
             formatted_steps.append(f"**{i}.** {step_str}")
 
     return "\n".join(formatted_steps)
-    """Limit chat history length to prevent memory issues."""
-    if len(history) <= max_length:
-        return history
-
-    # Keep system messages and recent messages
-    system_messages = [msg for msg in history if msg.get("role") == "system"]
-    recent_messages = history[-(max_length - len(system_messages)) :]
-
-    return system_messages + recent_messages
 
 
 async def chat_fn(
@@ -341,15 +333,16 @@ def launch() -> None:
                     download_btn = gr.Button("⬇️ Stáhnout", variant="primary")
 
         # Chat interactions
+        chat_cb = functools.partial(chat_fn, live_log_markdown=live_log_markdown)
         msg_submit = msg.submit(
-            chat_fn,
-            inputs=[msg, chatbot, reveal, steps_state, live_log_markdown],
+            chat_cb,
+            inputs=[msg, chatbot, reveal, steps_state],
             outputs=[chatbot, chatbot, steps_state],
         ).then(lambda: "", outputs=[msg])
 
         submit_btn.click(
-            chat_fn,
-            inputs=[msg, chatbot, reveal, steps_state, live_log_markdown],
+            chat_cb,
+            inputs=[msg, chatbot, reveal, steps_state],
             outputs=[chatbot, chatbot, steps_state],
         ).then(lambda: "", outputs=[msg])
 
