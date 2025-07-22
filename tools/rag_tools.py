@@ -5,6 +5,8 @@ import openai
 from datetime import datetime
 from pathlib import Path
 from typing import List
+from dotenv import load_dotenv
+load_dotenv()
 
 from langchain.tools import Tool
 from langchain_openai import OpenAIEmbeddings

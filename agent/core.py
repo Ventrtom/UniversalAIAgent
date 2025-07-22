@@ -1,4 +1,4 @@
-# agent/core2.py
+# agent/core.py
 """
 LangGraph‑based AI core for Productoo P4 agent.
 Keeps the same public API as core.py (handle_query) so both can coexist.
@@ -16,6 +16,7 @@ import os
 import time
 import functools
 import inspect
+from pathlib import Path
 from datetime import datetime
 from typing import TypedDict
 import threading
@@ -122,7 +123,7 @@ if hasattr(openai, "telemetry") and hasattr(openai.telemetry, "TelemetryClient")
 # Vectorstore (shared long‑term memory)
 # ---------------------------------------------------------------------------
 CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "data")
-_embeddings = OpenAIEmbeddings(model="text-embedding-3-small", async_mode=True)
+_embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
 # Two separate collections: external knowledge base and chat memory
 _kb_store = Chroma(
@@ -186,10 +187,14 @@ _short_term_memory = ConversationBufferWindowMemory(
 )
 
 # 2) Persistent chat log (restored across restarts → feeds the window buffer)
-_persistent_history_file = os.getenv(
-    "PERSISTENT_HISTORY_FILE",
-    "data/persistent_chat_history.json"
-    )
+_persistent_history_file = Path(
+    os.getenv("PERSISTENT_HISTORY_FILE", "data/persistent_chat_history.json")
+)
+_persistent_history_file.parent.mkdir(parents=True, exist_ok=True)
+
+_short_term_memory.chat_memory = FileChatMessageHistory(
+    file_path=str(_persistent_history_file)
+)
 
 _short_term_memory.chat_memory = FileChatMessageHistory(file_path=_persistent_history_file)
 
@@ -288,6 +293,12 @@ _scheduler.add_job(_snapshot_chat, "interval", seconds=SNAPSHOT_INTERVAL)
 _scheduler.start()
 atexit.register(lambda: _scheduler.shutdown(wait=False))
 atexit.register(_snapshot_chat)
+
+def _ev_attr(ev, attr: str, default=None):
+    """Vrať položku z dictu, nebo atribut objektu, případně default."""
+    if isinstance(ev, dict):
+        return ev.get(attr, default)
+    return getattr(ev, attr, default)
 
 # --- Node 4: Response (structured response in JSON) ------------------------------------
 class ResearchResponse(BaseModel):
@@ -450,7 +461,7 @@ async def act(state: AgentState) -> AgentState:
         err = f"⚠️ Nástroj selhal: {e}"
         state["answer"] = err
         state["intermediate_steps"] = [err]
-    _bg_executor.submit(learn, state.copy())
+    asyncio.create_task(learn(state.copy()))
     return state
 
 # --- Node 3: Learn (append to vectorstore) ------------------------------------
@@ -492,7 +503,7 @@ async def learn(state: AgentState) -> AgentState:
             records.sort(key=lambda r: r[2].get("ts", ""))
             last = records[-500:]
             text = "\n".join(doc for _, doc, _ in last)
-            summary = _llm.invoke(
+            summary = await _llm.ainvoke(
                 f"Summarise following 500 lines of chat history:\n{text}"
             )
             _chat_store.add_documents(
@@ -580,20 +591,25 @@ async def handle_query_stream(query: str):
         {"query": query, "answer": "", "intermediate_steps": [], "retrieved_context": ""},
         version="v1",
     ):
-        event_type = ev.get("event") or ev.get("event_name")
-        node_name  = ev.get("name")  or ev.get("node_name")
+        event_type = _ev_attr(ev, "event") or _ev_attr(ev, "event_name")
+        node_name  = _ev_attr(ev, "name")  or _ev_attr(ev, "node_name")
         # detekce tokenů LLM
         # -- průběžné streamování tokenů do UI
         if event_type == "on_llm_new_token":
-            yield ev["data"]["token"]
+            data = _ev_attr(ev, "data", {})
+            token = data["token"] if isinstance(data, dict) else getattr(data, "token", "")
+            yield token
 
         # -- zachycení finálního stavu po uzlu "act"
         if event_type == "on_node_end" and node_name == "act":
-            ds = ev.get("data", {})
-            final_state = ds.get("output") or ds.get("state")
+            ds = _ev_attr(ev, "data", {})
+            if isinstance(ds, dict):
+                final_state = ds.get("output") or ds.get("state")
+            else:
+                final_state = getattr(ds, "output", None) or getattr(ds, "state", None)
 
     if final_state is None:
-        final_state = workflow.invoke(
+        final_state = await workflow.ainvoke(
             {
                 "query": query,
                 "answer": "",
