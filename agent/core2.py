@@ -254,6 +254,7 @@ prompt = ChatPromptTemplate.from_messages(
     [
         ("system", system_prompt),
         MessagesPlaceholder("chat_history"),
+        ("assistant", "{retrieved_context}"),
         ("human", "{query}"),
         MessagesPlaceholder("agent_scratchpad"),
     ]
@@ -348,11 +349,11 @@ def recall(state: AgentState) -> AgentState:
 # --- Node 2: Call the langchain agent -----------------------------------------
 def act(state: AgentState) -> AgentState:
     """Spustí nástroj‑volajícího agenta s krátkodobou pamětí + kontextem."""
-    q = state["query"]
-    if ctx := state.get("retrieved_context"):
-        q += f"\n\nRelevant past context:\n{ctx}"
     try:
-        result = _agent_executor.invoke({"query": q})
+        result = _agent_executor.invoke({
+            "query": state["query"],
+            "retrieved_context": state.get("retrieved_context", ""),
+        })
         raw = result["output"].strip()
         if raw.startswith("```"):
             raw = raw.strip("`")                 # ořež zahajovací + ukončovací ```
