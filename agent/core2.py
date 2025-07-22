@@ -176,6 +176,7 @@ _ts_lock = threading.Lock()
 # Recent user embeddings for duplicate detection
 _embedding_cache: deque[list[float]] = deque(maxlen=500)
 _cache_ready = False
+_cache_lock = threading.Lock()
 
 
 def _update_last_user_ts() -> None:
@@ -196,19 +197,25 @@ def _ensure_cache() -> None:
     global _cache_ready
     if _cache_ready:
         return
-    try:
-        data = _chat_store.get(include=["embeddings", "metadatas"])
-        pairs = [
-            (e, m.get("ts"))
-            for e, m in zip(data.get("embeddings", []), data.get("metadatas", []))
-            if (m or {}).get("role") == "user"
-        ]
-        pairs.sort(key=lambda p: p[1] or "")
-        for emb, _ in pairs[-500:]:
-            _embedding_cache.append(emb)
-    except Exception:
-        pass
-    _cache_ready = True
+    with _cache_lock:
+        if _cache_ready:
+            return
+        try:
+            data = _chat_store.get(include=["embeddings", "metadatas"], limit=2000)
+            pairs = [
+                (e, m.get("ts"))
+                for e, m in zip(data.get("embeddings", []), data.get("metadatas", []))
+                if (m or {}).get("role") == "user"
+            ]
+            pairs.sort(key=lambda p: p[1] or "")
+            for emb, _ in pairs[-500:]:
+                _embedding_cache.append(emb)
+        except Exception:
+            pass
+        _cache_ready = True
+
+import threading
+threading.Thread(target=_ensure_cache, daemon=True).start()
 
 # --- Node 4: Response (structured response in JSON) ------------------------------------
 class ResearchResponse(BaseModel):
@@ -389,10 +396,11 @@ def learn(state: AgentState) -> AgentState:
         _ensure_cache()
         new_embs = _embeddings.embed_documents([d.page_content for d in docs])
         user_emb = new_embs[0]
-        if any(_cosine(user_emb, ex) > DUPLICATE_THRESHOLD for ex in _embedding_cache):
-            docs = [docs[1]]  # store assistant answer only
-        else:
-            _embedding_cache.append(user_emb)
+        with _cache_lock:
+            if any(_cosine(user_emb, ex) > DUPLICATE_THRESHOLD for ex in _embedding_cache):
+                docs = [docs[1]]  # store assistant answer only
+            else:
+                _embedding_cache.append(user_emb)
     except Exception:
         pass
 
@@ -408,9 +416,10 @@ def learn(state: AgentState) -> AgentState:
             ids_to_del = [rid for rid, _ in records[:over]]
             if ids_to_del:
                 _chat_store.delete(ids_to_del)
-                for _ in range(over):
-                    if _embedding_cache:
-                        _embedding_cache.popleft()
+                with _cache_lock:
+                    for _ in range(over):
+                        if _embedding_cache:
+                            _embedding_cache.popleft()
     except Exception:
         pass
     return state
