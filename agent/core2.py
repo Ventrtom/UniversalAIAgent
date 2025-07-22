@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import TypedDict
 import threading
 import math
+from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
 import openai
@@ -172,6 +173,7 @@ RECENCY_TAU = 30 * 24 * 3600
 # Time of the last user query (used for heuristic routing)
 _last_user_ts = datetime.utcnow().timestamp()
 _ts_lock = threading.Lock()
+_bg_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bg")
 
 # Recent user embeddings for duplicate detection
 _embedding_cache: deque[list[float]] = deque(maxlen=500)
@@ -368,6 +370,7 @@ def act(state: AgentState) -> AgentState:
         err = f"⚠️ Nástroj selhal: {e}"
         state["answer"] = err
         state["intermediate_steps"] = [err]
+    _bg_executor.submit(learn, state.copy())
     return state
 
 # --- Node 3: Learn (append to vectorstore) ------------------------------------
@@ -430,12 +433,10 @@ def _final_to_json(final_state: AgentState) -> str:
 graph = StateGraph(state_schema=AgentState)
 graph.add_node("recall", recall)
 graph.add_node("act", act)
-graph.add_node("learn", learn)
 
 graph.set_entry_point("recall")
 graph.add_edge("recall", "act")
-graph.add_edge("act", "learn")
-graph.add_edge("learn", END)
+graph.add_edge("act", END)
 
 # Kompilovaný workflow (lazy‑initialised, aby import nezdržoval start)
 workflow = graph.compile()
@@ -467,8 +468,8 @@ async def handle_query_stream(query: str):
         if event_type == "on_llm_new_token":
             yield ev["data"]["token"]
 
-        # -- zachycení finálního stavu po uzlu „learn“
-        if event_type == "on_node_end" and node_name == "learn":
+        # -- zachycení finálního stavu po uzlu "act"
+        if event_type == "on_node_end" and node_name == "act":
             ds = ev.get("data", {})
             final_state = ds.get("output") or ds.get("state")
 
