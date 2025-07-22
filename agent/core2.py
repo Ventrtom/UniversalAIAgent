@@ -322,7 +322,9 @@ def recall(state: AgentState) -> AgentState:
     use_kb = _is_information_query(query) or since_last > QUERY_TIME_THRESHOLD
     store = _kb_store if use_kb else _chat_store
 
-    results = store.similarity_search_with_relevance_scores(query, k=4)
+    words = len(query.split())
+    k = 2 if words < 10 else 4
+    results = store.similarity_search_with_relevance_scores(query, k=k)
     reranked: list[tuple[float, Document]] = []
     now_ts = datetime.utcnow().timestamp()
     for doc, cos in results:
