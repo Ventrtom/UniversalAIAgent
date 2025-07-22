@@ -22,11 +22,22 @@ OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
-def save_text_to_file(data: str, prefix: str = "research") -> str:
-    """Save *data* into a new TXT file and report the path."""
+def save_text_to_file(
+    data: str,
+    prefix: str = "research",
+    filename: str | None = None,
+) -> str:
+    """Save *data* into a new TXT file and report the path.
+
+    If *filename* is provided, it will be used (``.txt`` appended when missing).
+    Otherwise a name ``<prefix>_YYYY-MM-DD_HH-MM-SS.txt`` is generated.
+    """
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = f"{prefix}_{timestamp}.txt"
-    path = OUTPUT_DIR / filename
+    if filename:
+        base = filename if filename.endswith(".txt") else f"{filename}.txt"
+    else:
+        base = f"{prefix}_{timestamp}.txt"
+    path = OUTPUT_DIR / base
     path.write_text(data, encoding="utf-8")
     return f"Data saved to {path.as_posix()}"
 
