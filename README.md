@@ -27,7 +27,7 @@ Conversational assistant tailored for **Productoo's P4** platform. It leverages 
 | `rag_retriever`        | Fetch up to 4 most relevant chunks from the internal vector store (docs, roadmap, chats). |
 | `jira_ideas_retriever` | List *Ideas* from Jira project **P4**; optional `keyword` filter.                         |
 | `tavily_search`        | LLM‑powered semantic web search (requires `TAVILY_API_KEY`).                              |
-| `save_text_to_file`    | Persist any text to `output/…` (timestamped).                                             |
+| `save_text_to_file`    | Persist any text to `output/…`; allows custom filename or timestamped default. |
 | `kb_loader`            | Import Confluence pages and new files from `input/` into the long‑term knowledge base. |
 
 > **Planned tool** – `jira_issue_detail`: fetch a **single** Jira issue by key (e.g. `P4‑1234`) with full description, acceptance criteria, subtasks & comments.

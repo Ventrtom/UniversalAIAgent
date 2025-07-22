@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import TypedDict
 import threading
 import math
+from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
 import openai
@@ -147,7 +148,8 @@ _short_term_memory = ConversationBufferWindowMemory(
     k=SHORT_WINDOW,
     memory_key="chat_history",
     return_messages=True,
-    output_key="output"
+    output_key="output",
+    input_key="query",
 )
 
 # 2) Persistent chat log (restored across restarts → feeds the window buffer)
@@ -172,10 +174,12 @@ RECENCY_TAU = 30 * 24 * 3600
 # Time of the last user query (used for heuristic routing)
 _last_user_ts = datetime.utcnow().timestamp()
 _ts_lock = threading.Lock()
+_bg_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bg")
 
 # Recent user embeddings for duplicate detection
 _embedding_cache: deque[list[float]] = deque(maxlen=500)
 _cache_ready = False
+_cache_lock = threading.Lock()
 
 
 def _update_last_user_ts() -> None:
@@ -196,19 +200,25 @@ def _ensure_cache() -> None:
     global _cache_ready
     if _cache_ready:
         return
-    try:
-        data = _chat_store.get(include=["embeddings", "metadatas"])
-        pairs = [
-            (e, m.get("ts"))
-            for e, m in zip(data.get("embeddings", []), data.get("metadatas", []))
-            if (m or {}).get("role") == "user"
-        ]
-        pairs.sort(key=lambda p: p[1] or "")
-        for emb, _ in pairs[-500:]:
-            _embedding_cache.append(emb)
-    except Exception:
-        pass
-    _cache_ready = True
+    with _cache_lock:
+        if _cache_ready:
+            return
+        try:
+            data = _chat_store.get(include=["embeddings", "metadatas"], limit=2000)
+            pairs = [
+                (e, m.get("ts"))
+                for e, m in zip(data.get("embeddings", []), data.get("metadatas", []))
+                if (m or {}).get("role") == "user"
+            ]
+            pairs.sort(key=lambda p: p[1] or "")
+            for emb, _ in pairs[-500:]:
+                _embedding_cache.append(emb)
+        except Exception:
+            pass
+        _cache_ready = True
+
+import threading
+threading.Thread(target=_ensure_cache, daemon=True).start()
 
 # --- Node 4: Response (structured response in JSON) ------------------------------------
 class ResearchResponse(BaseModel):
@@ -245,6 +255,7 @@ prompt = ChatPromptTemplate.from_messages(
     [
         ("system", system_prompt),
         MessagesPlaceholder("chat_history"),
+        ("assistant", "{retrieved_context}"),
         ("human", "{query}"),
         MessagesPlaceholder("agent_scratchpad"),
     ]
@@ -311,7 +322,9 @@ def recall(state: AgentState) -> AgentState:
     use_kb = _is_information_query(query) or since_last > QUERY_TIME_THRESHOLD
     store = _kb_store if use_kb else _chat_store
 
-    results = store.similarity_search_with_relevance_scores(query, k=4)
+    words = len(query.split())
+    k = 2 if words < 10 else 4
+    results = store.similarity_search_with_relevance_scores(query, k=k)
     reranked: list[tuple[float, Document]] = []
     now_ts = datetime.utcnow().timestamp()
     for doc, cos in results:
@@ -337,13 +350,13 @@ def recall(state: AgentState) -> AgentState:
     return state
 
 # --- Node 2: Call the langchain agent -----------------------------------------
-def act(state: AgentState) -> AgentState:
+async def act(state: AgentState) -> AgentState:
     """Spustí nástroj‑volajícího agenta s krátkodobou pamětí + kontextem."""
-    q = state["query"]
-    if ctx := state.get("retrieved_context"):
-        q += f"\n\nRelevant past context:\n{ctx}"
     try:
-        result = _agent_executor.invoke({"query": q})
+        result = await _agent_executor.ainvoke({
+            "query": state["query"],
+            "retrieved_context": state.get("retrieved_context", ""),
+        })
         raw = result["output"].strip()
         if raw.startswith("```"):
             raw = raw.strip("`")                 # ořež zahajovací + ukončovací ```
@@ -368,6 +381,7 @@ def act(state: AgentState) -> AgentState:
         err = f"⚠️ Nástroj selhal: {e}"
         state["answer"] = err
         state["intermediate_steps"] = [err]
+    _bg_executor.submit(learn, state.copy())
     return state
 
 # --- Node 3: Learn (append to vectorstore) ------------------------------------
@@ -391,10 +405,11 @@ async def learn(state: AgentState) -> AgentState:
             [d.page_content for d in docs]
         )
         user_emb = new_embs[0]
-        if any(_cosine(user_emb, ex) > DUPLICATE_THRESHOLD for ex in _embedding_cache):
-            docs = [docs[1]]  # store assistant answer only
-        else:
-            _embedding_cache.append(user_emb)
+        with _cache_lock:
+            if any(_cosine(user_emb, ex) > DUPLICATE_THRESHOLD for ex in _embedding_cache):
+                docs = [docs[1]]  # store assistant answer only
+            else:
+                _embedding_cache.append(user_emb)
     except Exception:
         pass
 
@@ -402,7 +417,8 @@ async def learn(state: AgentState) -> AgentState:
 
     try:
         total = _chat_store.get_total_records()
-        if total > MAX_CHAT_RECORDS:
+        # Defer costly sort/delete until we exceed the limit by a margin
+        if total > MAX_CHAT_RECORDS + 500:
             over = total - MAX_CHAT_RECORDS
             res = _chat_store.get(include=["metadatas"], limit=None)
             records = list(zip(res["ids"], res["metadatas"]))
@@ -410,9 +426,10 @@ async def learn(state: AgentState) -> AgentState:
             ids_to_del = [rid for rid, _ in records[:over]]
             if ids_to_del:
                 _chat_store.delete(ids_to_del)
-                for _ in range(over):
-                    if _embedding_cache:
-                        _embedding_cache.popleft()
+                with _cache_lock:
+                    for _ in range(over):
+                        if _embedding_cache:
+                            _embedding_cache.popleft()
     except Exception:
         pass
     return state
@@ -432,12 +449,10 @@ def _final_to_json(final_state: AgentState) -> str:
 graph = StateGraph(state_schema=AgentState)
 graph.add_node("recall", recall)
 graph.add_node("act", act)
-graph.add_node("learn", learn)
 
 graph.set_entry_point("recall")
 graph.add_edge("recall", "act")
-graph.add_edge("act", "learn")
-graph.add_edge("learn", END)
+graph.add_edge("act", END)
 
 # Kompilovaný workflow (lazy‑initialised, aby import nezdržoval start)
 workflow = graph.compile()
@@ -447,7 +462,9 @@ workflow = graph.compile()
 # ---------------------------------------------------------------------------
 def handle_query(query: str) -> str:
     """Jediný veřejný vstup: zpracuje dotaz a vrátí odpověď."""
-    final = workflow.invoke({"query": query, "answer": "", "intermediate_steps": [], "retrieved_context": ""})
+    final = asyncio.run(
+        workflow.ainvoke({"query": query, "answer": "", "intermediate_steps": [], "retrieved_context": ""})
+    )
     result = _final_to_json(final)
     _update_last_user_ts()
     return result
@@ -469,8 +486,8 @@ async def handle_query_stream(query: str):
         if event_type == "on_llm_new_token":
             yield ev["data"]["token"]
 
-        # -- zachycení finálního stavu po uzlu „learn“
-        if event_type == "on_node_end" and node_name == "learn":
+        # -- zachycení finálního stavu po uzlu "act"
+        if event_type == "on_node_end" and node_name == "act":
             ds = ev.get("data", {})
             final_state = ds.get("output") or ds.get("state")
 

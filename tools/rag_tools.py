@@ -22,11 +22,29 @@ OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
-def _save_to_txt(data: str, prefix: str = "research") -> str:
-    """Save *data* into a new TXT file and report the path."""
+def _save_to_txt(
+    data: str,
+    prefix: str = "research",
+    filename: str | None = None,
+) -> str:
+    """Save *data* into a new TXT file and report the path.
+
+    Parameters
+    ----------
+    data : str
+        The text content to persist.
+    prefix : str, optional
+        Fallback prefix if *filename* is not provided.
+    filename : str | None, optional
+        Explicit file name (with or without ``.txt`` extension).
+    """
+
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = f"{prefix}_{timestamp}.txt"
-    path = OUTPUT_DIR / filename
+    if filename:
+        base = filename if filename.endswith(".txt") else f"{filename}.txt"
+    else:
+        base = f"{prefix}_{timestamp}.txt"
+    path = OUTPUT_DIR / base
     path.write_text(data, encoding="utf-8")
     return f"Data saved to {path.as_posix()}"
 
@@ -44,9 +62,11 @@ save_tool = Tool(
 
         Parameters
         ----------
-        data   : str   (required) – the full body of text to save.
-        prefix : str   (optional, default "research") – filename prefix; the final name
-                is <prefix>_YYYY-MM-DD_HH-MM-SS.txt.
+        data      : str   (required) – the full body of text to save.
+        prefix    : str   (optional, default "research") – fallback prefix for auto naming.
+        filename  : str   (optional) – desired file name; ``.txt`` will be appended
+                if missing. When omitted, the name defaults to
+                ``<prefix>_YYYY-MM-DD_HH-MM-SS.txt``.
 
         Returns
         -------
