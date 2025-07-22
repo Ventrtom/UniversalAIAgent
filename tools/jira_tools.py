@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import openai
+import asyncio
 from typing import List, Optional
 
 from langchain.tools import StructuredTool
@@ -33,9 +34,13 @@ class JiraIdeasInput(BaseModel):
     )
 
 
-def _jira_ideas_struct(keyword: Optional[str] = None) -> str:
+async def _jira_ideas_struct(keyword: Optional[str] = None) -> str:
     try:
-        issues = _JIRA.search_issues("project = P4 ORDER BY created DESC", max_results=100)
+        issues = await asyncio.to_thread(
+            _JIRA.search_issues,
+            "project = P4 ORDER BY created DESC",
+            max_results=100,
+        )
     except Exception as exc:  # pragma: no cover – user-facing path only
         return f"Chyba při načítání JIRA: {exc}"
 
@@ -67,7 +72,7 @@ def _jira_ideas_struct(keyword: Optional[str] = None) -> str:
 
 
 jira_ideas = StructuredTool.from_function(
-    func=_jira_ideas_struct,
+    coroutine=_jira_ideas_struct,
     name="jira_ideas_retriever",
     description=(
         """
@@ -105,9 +110,10 @@ def _format_acceptance_criteria(text: str) -> str:
     return "\n".join(f"- {ln.lstrip('*- ').strip()}" for ln in items)
 
 
-def _jira_issue_detail(key: str) -> str:
+async def _jira_issue_detail(key: str) -> str:
     try:
-        issue = _JIRA.get_issue(
+        issue = await asyncio.to_thread(
+            _JIRA.get_issue,
             key,
             fields=[
                 "summary",
@@ -185,7 +191,7 @@ def _jira_issue_detail(key: str) -> str:
 
 
 jira_issue_detail = StructuredTool.from_function(
-    func=_jira_issue_detail,
+    coroutine=_jira_issue_detail,
     name="jira_issue_detail",
     description=(
         """
@@ -227,11 +233,11 @@ class DuplicateIdeasInput(BaseModel):
     )
 
 
-def _duplicate_ideas(
+async def _duplicate_ideas(
     summary: str, description: str | None = None, threshold: float = 0.8
 ) -> str:
     try:
-        matches = find_duplicate_ideas(summary, description, threshold)
+        matches = await asyncio.to_thread(find_duplicate_ideas, summary, description, threshold)
     except ValueError as exc:  # invalid threshold
         return f"Neplatný parametr `threshold`: {exc}"
 
@@ -241,7 +247,7 @@ def _duplicate_ideas(
 
 
 jira_duplicates = StructuredTool.from_function(
-    func=_duplicate_ideas,
+    coroutine=_duplicate_ideas,
     name="jira_duplicate_idea_checker",
     description=(
         """
@@ -297,7 +303,7 @@ class UpdateDescriptionInput(BaseModel):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-def _jira_update_description(
+async def _jira_update_description(
     *, key: str, new_description: str, confirm: bool = False
 ) -> str:
     """
@@ -307,7 +313,7 @@ def _jira_update_description(
     2. confirm=True  → actual write (now with correct ADF!)
     """
     try:
-        old_issue = _JIRA.get_issue(key, fields=["description"])
+        old_issue = await asyncio.to_thread(_JIRA.get_issue, key, fields=["description"])
     except Exception as exc:
         return f"❌ Nelze načíst issue {key}: {exc}"
 
@@ -358,7 +364,7 @@ def _jira_update_description(
     }
 
     try:
-        _JIRA.update_issue(key, {"fields": {"description": adf_doc}})
+        await asyncio.to_thread(_JIRA.update_issue, key, {"fields": {"description": adf_doc}})
     except Exception as exc:
         return f"❌ Aktualizace selhala: {exc}"
 
@@ -366,7 +372,7 @@ def _jira_update_description(
 # ──────────────────────────────────────────────────────────────────────────────
 
 jira_update_description = StructuredTool.from_function(
-    func=_jira_update_description,
+    coroutine=_jira_update_description,
     name="jira_update_description",
     description=(
         """
@@ -399,7 +405,7 @@ class ChildIssuesInput(BaseModel):
     """Vrátí přímé child issues (Stories, Tasks…) pod zadaným issue/Epicem."""
     key: str = Field(..., description="Jira key nadřazeného issue, např. 'P4-123'.")
 
-def _jira_child_issues(key: str) -> str:
+async def _jira_child_issues(key: str) -> str:
     """
     Najde všechny *přímé* potomky (parent/„Epic Link“) zadaného issue.
 
@@ -409,7 +415,8 @@ def _jira_child_issues(key: str) -> str:
     """
     try:
         jql = f'parent = "{key}" OR "Epic Link" = "{key}"'
-        issues = _JIRA.search_issues(
+        issues = await asyncio.to_thread(
+            _JIRA.search_issues,
             jql,
             max_results=100,
             fields=["summary", "status", "issuetype"],
@@ -429,7 +436,7 @@ def _jira_child_issues(key: str) -> str:
     return "\n".join(_row(i) for i in issues)
 
 jira_child_issues = StructuredTool.from_function(
-    func=_jira_child_issues,
+    coroutine=_jira_child_issues,
     name="jira_child_issues",
     description=(
         """
@@ -460,7 +467,7 @@ class IssueLinksInput(BaseModel):
     """Vypíše všechny vazby (issue links) k danému Jira issue."""
     key: str = Field(..., description="Jira key, např. 'P4-42'.")
 
-def _jira_issue_links(key: str) -> str:
+async def _jira_issue_links(key: str) -> str:
     """
     Vrátí kompletní seznam všech propojených issues a typ vazby.
 
@@ -468,7 +475,7 @@ def _jira_issue_links(key: str) -> str:
     • Formát: "KEY | Relation | Type | Status | Summary"
     """
     try:
-        issue = _JIRA.get_issue(key, fields=["issuelinks"])
+        issue = await asyncio.to_thread(_JIRA.get_issue, key, fields=["issuelinks"])
     except Exception as exc:                         # pragma: no cover
         return f"Chyba při načítání JIRA: {exc}"
 
@@ -502,7 +509,7 @@ def _jira_issue_links(key: str) -> str:
 
 
 jira_issue_links = StructuredTool.from_function(
-    func=_jira_issue_links,
+    coroutine=_jira_issue_links,
     name="jira_issue_links",
     description=(
         """

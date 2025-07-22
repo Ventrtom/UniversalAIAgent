@@ -350,10 +350,10 @@ def recall(state: AgentState) -> AgentState:
     return state
 
 # --- Node 2: Call the langchain agent -----------------------------------------
-def act(state: AgentState) -> AgentState:
+async def act(state: AgentState) -> AgentState:
     """Spustí nástroj‑volajícího agenta s krátkodobou pamětí + kontextem."""
     try:
-        result = _agent_executor.invoke({
+        result = await _agent_executor.ainvoke({
             "query": state["query"],
             "retrieved_context": state.get("retrieved_context", ""),
         })
@@ -460,7 +460,9 @@ workflow = graph.compile()
 # ---------------------------------------------------------------------------
 def handle_query(query: str) -> str:
     """Jediný veřejný vstup: zpracuje dotaz a vrátí odpověď."""
-    final = workflow.invoke({"query": query, "answer": "", "intermediate_steps": [], "retrieved_context": ""})
+    final = asyncio.run(
+        workflow.ainvoke({"query": query, "answer": "", "intermediate_steps": [], "retrieved_context": ""})
+    )
     result = _final_to_json(final)
     _update_last_user_ts()
     return result
