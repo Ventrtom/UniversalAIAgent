@@ -127,7 +127,7 @@ _embeddings = OpenAIEmbeddings(model="text-embedding-3-small", async_mode=True)
 # Two separate collections: external knowledge base and chat memory
 _kb_store = Chroma(
     collection_name="kb_docs",
-    persist_directory=None,
+    persist_directory=CHROMA_DIR,
     embedding_function=_embeddings,
     client_settings=Settings(anonymized_telemetry=False),
 )
@@ -163,7 +163,7 @@ class ChatMemoryStore(Chroma):
 
 _chat_store = ChatMemoryStore(
     collection_name="chat_memory",
-    persist_directory=None,
+    persist_directory=CHROMA_DIR,
     embedding_function=_embeddings,
     client_settings=Settings(anonymized_telemetry=False),
 )
