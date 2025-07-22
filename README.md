@@ -28,6 +28,8 @@ Conversational assistant tailored for **Productoo's P4** platform. It leverages 
 | `jira_ideas_retriever` | List *Ideas* from Jira project **P4**; optional `keyword` filter.                         |
 | `tavily_search`        | LLM‑powered semantic web search (requires `TAVILY_API_KEY`).                              |
 | `save_text_to_file`    | Persist any text to `output/…`; allows custom filename or timestamped default. |
+| `list_output_files`    | Show available `.txt`, `.md`, `.csv` and `.pdf` files saved under `output/`. |
+| `read_output_file`     | Read the contents of a chosen file from `output/`. |
 | `kb_loader`            | Import Confluence pages and new files from `input/` into the long‑term knowledge base. |
 
 > **Planned tool** – `jira_issue_detail`: fetch a **single** Jira issue by key (e.g. `P4‑1234`) with full description, acceptance criteria, subtasks & comments.

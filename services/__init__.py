@@ -14,6 +14,7 @@ from .jira_content_service import (
     user_stories_for_epic,
 )
 from .input_loader import process_input_files
+from .output_reader import list_output_files, read_output_file
 
 __all__ = [
     "JiraClient",
@@ -29,4 +30,6 @@ __all__ = [
     "_extract_text_from_adf",
     "jira_content_tools",
     "process_input_files",
+    "list_output_files",
+    "read_output_file",
 ]
