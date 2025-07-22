@@ -456,6 +456,33 @@ async def learn(state: AgentState) -> AgentState:
 
     try:
         total = _chat_store.get_total_records()
+        if total % 500 == 0:
+            res = _chat_store.get(include=["documents", "metadatas"], limit=None)
+            records = list(zip(res["ids"], res["documents"], res["metadatas"]))
+            records.sort(key=lambda r: r[2].get("ts", ""))
+            last = records[-500:]
+            text = "\n".join(doc for _, doc, _ in last)
+            summary = _llm.invoke(
+                f"Summarise following 500 lines of chat history:\n{text}"
+            )
+            _chat_store.add_documents(
+                [
+                    Document(
+                        page_content=summary,
+                        metadata={"role": "summary", "ts": ts, "source": "chat"},
+                    )
+                ]
+            )
+            ids_to_del = [rid for rid, _, _ in last]
+            if ids_to_del:
+                _chat_store.delete(ids_to_del)
+                with _cache_lock:
+                    for _ in range(len(ids_to_del)):
+                        if _embedding_cache:
+                            _embedding_cache.popleft()
+
+        # Re-evaluate collection size after potential summarisation
+        total = _chat_store.get_total_records()
         # Defer costly sort/delete until we exceed the limit by a margin
         if total > MAX_CHAT_RECORDS + 500:
             over = total - MAX_CHAT_RECORDS
