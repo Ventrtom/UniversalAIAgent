@@ -395,8 +395,9 @@ _agent_executor = AgentExecutor(
     agent=_agent,
     tools=_TOOLS,
     memory=_short_term_memory,
-    verbose=True,
+    verbose=False,
     return_intermediate_steps=True,
+    max_iterations=3,
 )
 
 
