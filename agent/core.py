@@ -1,4 +1,4 @@
-# agent/core2.py
+# agent/core.py
 """
 LangGraph‑based AI core for Productoo P4 agent.
 Keeps the same public API as core.py (handle_query) so both can coexist.
@@ -13,6 +13,10 @@ Key features
 from __future__ import annotations
 
 import os
+import time
+import functools
+import inspect
+from pathlib import Path
 from datetime import datetime
 from typing import TypedDict
 import threading
@@ -50,6 +54,36 @@ from chromadb.config import Settings
 # Pydantic model
 from pydantic import BaseModel
 import json, asyncio
+import pandas as pd
+from apscheduler.schedulers.background import BackgroundScheduler
+import atexit
+
+# ---------------------------------------------------------------------------
+# Utility: timing decorator for measuring production phase durations
+# ---------------------------------------------------------------------------
+
+def timed(name):
+    """Measure and log execution time of the wrapped function."""
+    def deco(fn):
+        if inspect.iscoroutinefunction(fn):
+            @functools.wraps(fn)
+            async def awrap(*a, **k):
+                t0 = time.perf_counter()
+                try:
+                    return await fn(*a, **k)
+                finally:
+                    print(f"[{name}] {(time.perf_counter() - t0):.2f}s")
+            return awrap
+        else:
+            @functools.wraps(fn)
+            def wrap(*a, **k):
+                t0 = time.perf_counter()
+                try:
+                    return fn(*a, **k)
+                finally:
+                    print(f"[{name}] {(time.perf_counter() - t0):.2f}s")
+            return wrap
+    return deco
 
 # Project‑specific tools (identické s core.py)
 from tools import (
@@ -89,7 +123,7 @@ if hasattr(openai, "telemetry") and hasattr(openai.telemetry, "TelemetryClient")
 # Vectorstore (shared long‑term memory)
 # ---------------------------------------------------------------------------
 CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "data")
-_embeddings = OpenAIEmbeddings(model="text-embedding-3-small", async_mode=True)
+_embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
 # Two separate collections: external knowledge base and chat memory
 _kb_store = Chroma(
@@ -153,10 +187,14 @@ _short_term_memory = ConversationBufferWindowMemory(
 )
 
 # 2) Persistent chat log (restored across restarts → feeds the window buffer)
-_persistent_history_file = os.getenv(
-    "PERSISTENT_HISTORY_FILE",
-    "data/persistent_chat_history.json"
-    )
+_persistent_history_file = Path(
+    os.getenv("PERSISTENT_HISTORY_FILE", "data/persistent_chat_history.json")
+)
+_persistent_history_file.parent.mkdir(parents=True, exist_ok=True)
+
+_short_term_memory.chat_memory = FileChatMessageHistory(
+    file_path=str(_persistent_history_file)
+)
 
 _short_term_memory.chat_memory = FileChatMessageHistory(file_path=_persistent_history_file)
 
@@ -219,6 +257,48 @@ def _ensure_cache() -> None:
 
 import threading
 threading.Thread(target=_ensure_cache, daemon=True).start()
+
+# ---------------------------------------------------------------------------
+# Periodic snapshotting of chat memory
+# ---------------------------------------------------------------------------
+SNAPSHOT_PATH = os.getenv("CHAT_SNAPSHOT_FILE", "data/chat_snapshot.parquet")
+SNAPSHOT_INTERVAL = int(os.getenv("CHAT_SNAPSHOT_INTERVAL", 600))
+
+
+def _snapshot_chat() -> None:
+    """Persist chat vectors and metadata to a Parquet file."""
+    try:
+        data = _chat_store.get(include=["documents", "metadatas"], limit=None)
+        rows = [
+            {
+                "id": i,
+                "document": doc,
+                **(meta or {}),
+            }
+            for i, doc, meta in zip(
+                data.get("ids", []),
+                data.get("documents", []),
+                data.get("metadatas", []),
+            )
+        ]
+        if rows:
+            os.makedirs(os.path.dirname(SNAPSHOT_PATH), exist_ok=True)
+            pd.DataFrame(rows).to_parquet(SNAPSHOT_PATH, index=False)
+    except Exception:
+        pass
+
+
+_scheduler = BackgroundScheduler(daemon=True)
+_scheduler.add_job(_snapshot_chat, "interval", seconds=SNAPSHOT_INTERVAL)
+_scheduler.start()
+atexit.register(lambda: _scheduler.shutdown(wait=False))
+atexit.register(_snapshot_chat)
+
+def _ev_attr(ev, attr: str, default=None):
+    """Vrať položku z dictu, nebo atribut objektu, případně default."""
+    if isinstance(ev, dict):
+        return ev.get(attr, default)
+    return getattr(ev, attr, default)
 
 # --- Node 4: Response (structured response in JSON) ------------------------------------
 class ResearchResponse(BaseModel):
@@ -381,7 +461,7 @@ async def act(state: AgentState) -> AgentState:
         err = f"⚠️ Nástroj selhal: {e}"
         state["answer"] = err
         state["intermediate_steps"] = [err]
-    _bg_executor.submit(learn, state.copy())
+    asyncio.create_task(learn(state.copy()))
     return state
 
 # --- Node 3: Learn (append to vectorstore) ------------------------------------
@@ -417,6 +497,33 @@ async def learn(state: AgentState) -> AgentState:
 
     try:
         total = _chat_store.get_total_records()
+        if total % 500 == 0:
+            res = _chat_store.get(include=["documents", "metadatas"], limit=None)
+            records = list(zip(res["ids"], res["documents"], res["metadatas"]))
+            records.sort(key=lambda r: r[2].get("ts", ""))
+            last = records[-500:]
+            text = "\n".join(doc for _, doc, _ in last)
+            summary = await _llm.ainvoke(
+                f"Summarise following 500 lines of chat history:\n{text}"
+            )
+            _chat_store.add_documents(
+                [
+                    Document(
+                        page_content=summary,
+                        metadata={"role": "summary", "ts": ts, "source": "chat"},
+                    )
+                ]
+            )
+            ids_to_del = [rid for rid, _, _ in last]
+            if ids_to_del:
+                _chat_store.delete(ids_to_del)
+                with _cache_lock:
+                    for _ in range(len(ids_to_del)):
+                        if _embedding_cache:
+                            _embedding_cache.popleft()
+
+        # Re-evaluate collection size after potential summarisation
+        total = _chat_store.get_total_records()
         # Defer costly sort/delete until we exceed the limit by a margin
         if total > MAX_CHAT_RECORDS + 500:
             over = total - MAX_CHAT_RECORDS
@@ -433,6 +540,11 @@ async def learn(state: AgentState) -> AgentState:
     except Exception:
         pass
     return state
+
+# Apply timing decorators to key phases
+recall = timed("recall")(recall)
+act    = timed("act")(act)
+learn  = timed("learn")(learn)
 
 # --- Public API -------------------------------------------------------------
 def _final_to_json(final_state: AgentState) -> str:
@@ -479,20 +591,25 @@ async def handle_query_stream(query: str):
         {"query": query, "answer": "", "intermediate_steps": [], "retrieved_context": ""},
         version="v1",
     ):
-        event_type = ev.get("event") or ev.get("event_name")
-        node_name  = ev.get("name")  or ev.get("node_name")
+        event_type = _ev_attr(ev, "event") or _ev_attr(ev, "event_name")
+        node_name  = _ev_attr(ev, "name")  or _ev_attr(ev, "node_name")
         # detekce tokenů LLM
         # -- průběžné streamování tokenů do UI
         if event_type == "on_llm_new_token":
-            yield ev["data"]["token"]
+            data = _ev_attr(ev, "data", {})
+            token = data["token"] if isinstance(data, dict) else getattr(data, "token", "")
+            yield token
 
         # -- zachycení finálního stavu po uzlu "act"
         if event_type == "on_node_end" and node_name == "act":
-            ds = ev.get("data", {})
-            final_state = ds.get("output") or ds.get("state")
+            ds = _ev_attr(ev, "data", {})
+            if isinstance(ds, dict):
+                final_state = ds.get("output") or ds.get("state")
+            else:
+                final_state = getattr(ds, "output", None) or getattr(ds, "state", None)
 
     if final_state is None:
-        final_state = workflow.invoke(
+        final_state = await workflow.ainvoke(
             {
                 "query": query,
                 "answer": "",

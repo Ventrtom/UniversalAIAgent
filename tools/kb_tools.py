@@ -7,9 +7,12 @@ import asyncio
 async def _update_kb(arg: str = "") -> str:
     return await asyncio.to_thread(update_kb, arg)
 
+def _update_kb_sync(arg: str = "") -> str:
+    return asyncio.run(_update_kb(arg))
 
 kb_loader_tool = Tool(
     name="kb_loader",
+    func=_update_kb_sync,
     coroutine=_update_kb,
     description=(
         "Synchronise the long-term knowledge base (`kb_docs`) with data from "
