@@ -13,6 +13,9 @@ Key features
 from __future__ import annotations
 
 import os
+import time
+import functools
+import inspect
 from datetime import datetime
 from typing import TypedDict
 import threading
@@ -53,6 +56,33 @@ import json, asyncio
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
+
+# ---------------------------------------------------------------------------
+# Utility: timing decorator for measuring production phase durations
+# ---------------------------------------------------------------------------
+
+def timed(name):
+    """Measure and log execution time of the wrapped function."""
+    def deco(fn):
+        if inspect.iscoroutinefunction(fn):
+            @functools.wraps(fn)
+            async def awrap(*a, **k):
+                t0 = time.perf_counter()
+                try:
+                    return await fn(*a, **k)
+                finally:
+                    print(f"[{name}] {(time.perf_counter() - t0):.2f}s")
+            return awrap
+        else:
+            @functools.wraps(fn)
+            def wrap(*a, **k):
+                t0 = time.perf_counter()
+                try:
+                    return fn(*a, **k)
+                finally:
+                    print(f"[{name}] {(time.perf_counter() - t0):.2f}s")
+            return wrap
+    return deco
 
 # Project‑specific tools (identické s core.py)
 from tools import (
@@ -472,6 +502,11 @@ async def learn(state: AgentState) -> AgentState:
     except Exception:
         pass
     return state
+
+# Apply timing decorators to key phases
+recall = timed("recall")(recall)
+act    = timed("act")(act)
+learn  = timed("learn")(learn)
 
 # --- Public API -------------------------------------------------------------
 def _final_to_json(final_state: AgentState) -> str:
