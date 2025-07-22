@@ -37,11 +37,12 @@ from langchain.agents import create_tool_calling_agent, AgentExecutor
 
 from langgraph.graph import StateGraph, END
 
-os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")   # rozpoznáno 0.4.2+
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")  # rozpoznáno 0.4.2+
 
 try:
     # 1) starší cesty
     from chromadb.telemetry import TelemetryClient
+
     TelemetryClient.capture = lambda self, *a, **k: None
 except ImportError:
     pass
@@ -62,10 +63,13 @@ import atexit
 # Utility: timing decorator for measuring production phase durations
 # ---------------------------------------------------------------------------
 
+
 def timed(name):
     """Measure and log execution time of the wrapped function."""
+
     def deco(fn):
         if inspect.iscoroutinefunction(fn):
+
             @functools.wraps(fn)
             async def awrap(*a, **k):
                 t0 = time.perf_counter()
@@ -73,8 +77,10 @@ def timed(name):
                     return await fn(*a, **k)
                 finally:
                     print(f"[{name}] {(time.perf_counter() - t0):.2f}s")
+
             return awrap
         else:
+
             @functools.wraps(fn)
             def wrap(*a, **k):
                 t0 = time.perf_counter()
@@ -82,8 +88,11 @@ def timed(name):
                     return fn(*a, **k)
                 finally:
                     print(f"[{name}] {(time.perf_counter() - t0):.2f}s")
+
             return wrap
+
     return deco
+
 
 # Project‑specific tools (identické s core.py)
 from tools import (
@@ -112,11 +121,12 @@ from tools import (
 load_dotenv()
 
 os.environ.setdefault("OPENAI_TELEMETRY", "0")
-os.environ.setdefault("CHROMA_TELEMETRY",  "0")
+os.environ.setdefault("CHROMA_TELEMETRY", "0")
 os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
 if hasattr(openai, "telemetry") and hasattr(openai.telemetry, "TelemetryClient"):
     try:
         import chromadb.telemetry as _ct
+
         _ct.TelemetryClient.capture = staticmethod(lambda *a, **k: None)
     except ImportError:
         pass
@@ -138,6 +148,7 @@ _kb_store = Chroma(
 # Ensure all knowledge documents include metadata source="doc"
 _kb_add_documents_orig = _kb_store.add_documents
 
+
 def _kb_add_documents_with_source(docs, **kwargs):
     wrapped = []
     for d in docs:
@@ -146,8 +157,8 @@ def _kb_add_documents_with_source(docs, **kwargs):
         wrapped.append(Document(page_content=d.page_content, metadata=meta))
     return _kb_add_documents_orig(wrapped, **kwargs)
 
-_kb_store.add_documents = _kb_add_documents_with_source
 
+_kb_store.add_documents = _kb_add_documents_with_source
 
 
 class ChatMemoryStore(Chroma):
@@ -198,7 +209,9 @@ _short_term_memory.chat_memory = FileChatMessageHistory(
     file_path=str(_persistent_history_file)
 )
 
-_short_term_memory.chat_memory = FileChatMessageHistory(file_path=_persistent_history_file)
+_short_term_memory.chat_memory = FileChatMessageHistory(
+    file_path=_persistent_history_file
+)
 
 QUERY_TIME_THRESHOLD = int(os.getenv("QUERY_TIME_THRESHOLD", 120))
 MAX_CHAT_RECORDS = int(os.getenv("MAX_CHAT_RECORDS", 10_000))
@@ -257,7 +270,9 @@ def _ensure_cache() -> None:
             pass
         _cache_ready = True
 
+
 import threading
+
 threading.Thread(target=_ensure_cache, daemon=True).start()
 
 # ---------------------------------------------------------------------------
@@ -296,16 +311,19 @@ _scheduler.start()
 atexit.register(lambda: _scheduler.shutdown(wait=False))
 atexit.register(_snapshot_chat)
 
+
 def _ev_attr(ev, attr: str, default=None):
     """Vrať položku z dictu, nebo atribut objektu, případně default."""
     if isinstance(ev, dict):
         return ev.get(attr, default)
     return getattr(ev, attr, default)
 
+
 # --- Node 4: Response (structured response in JSON) ------------------------------------
 class ResearchResponse(BaseModel):
     answer: str
     intermediate_steps: list[str] | None = None
+
 
 parser = PydanticOutputParser(pydantic_object=ResearchResponse)
 
@@ -345,9 +363,11 @@ prompt = ChatPromptTemplate.from_messages(
 
 _llm = ChatOpenAI(model="gpt-4o", temperature=0.3)
 
+
 def _safe(t):
     t.handle_tool_error = True
     return t
+
 
 _TOOLS = [
     search_tool,
@@ -379,15 +399,18 @@ _agent_executor = AgentExecutor(
     return_intermediate_steps=True,
 )
 
+
 # ---------------------------------------------------------------------------
 # LangGraph: state model & nodes
 # ---------------------------------------------------------------------------
 class AgentState(TypedDict):
     """Datový balíček přenášený mezi uzly grafu."""
+
     query: str
     answer: str
     intermediate_steps: list
     retrieved_context: str
+
 
 # --- Node 1: Retrieve relevant long‑term memory --------------------------------
 def _is_information_query(query: str) -> bool:
@@ -420,12 +443,10 @@ def recall(state: AgentState) -> AgentState:
             except Exception:
                 pass
         recency = math.exp(-delta / RECENCY_TAU) if delta != float("inf") else 0.0
-        type_boost = TYPE_BOOST_DOC if doc.metadata.get("source") == "doc" else TYPE_BOOST_CHAT
-        score = (
-            RERANK_ALPHA * cos
-            + RERANK_BETA * recency
-            + RERANK_GAMMA * type_boost
+        type_boost = (
+            TYPE_BOOST_DOC if doc.metadata.get("source") == "doc" else TYPE_BOOST_CHAT
         )
+        score = RERANK_ALPHA * cos + RERANK_BETA * recency + RERANK_GAMMA * type_boost
         reranked.append((score, doc))
 
     reranked.sort(key=lambda x: x[0], reverse=True)
@@ -433,17 +454,20 @@ def recall(state: AgentState) -> AgentState:
     state["retrieved_context"] = "\n".join(d.page_content for d in docs)
     return state
 
+
 # --- Node 2: Call the langchain agent -----------------------------------------
 async def act(state: AgentState) -> AgentState:
     """Spustí nástroj‑volajícího agenta s krátkodobou pamětí + kontextem."""
     try:
-        result = await _agent_executor.ainvoke({
-            "query": state["query"],
-            "retrieved_context": state.get("retrieved_context", ""),
-        })
+        result = await _agent_executor.ainvoke(
+            {
+                "query": state["query"],
+                "retrieved_context": state.get("retrieved_context", ""),
+            }
+        )
         raw = result["output"].strip()
         if raw.startswith("```"):
-            raw = raw.strip("`")                 # ořež zahajovací + ukončovací ```
+            raw = raw.strip("`")  # ořež zahajovací + ukončovací ```
             # po ořezu může zůstat "json\n{", smažeme jazykový prefix
             if raw.lstrip().lower().startswith("json"):
                 raw = raw.lstrip()[4:].lstrip()
@@ -452,21 +476,21 @@ async def act(state: AgentState) -> AgentState:
         if raw.lower().startswith("json"):
             raw = raw[4:].lstrip()
 
-        try: 
-            parsed = ResearchResponse.parse_raw(raw) 
+        try:
+            parsed = ResearchResponse.parse_raw(raw)
             state["answer"] = parsed.answer
             state["intermediate_steps"] = parsed.intermediate_steps
-        except Exception as e: 
+        except Exception as e:
             state["answer"] = f"⚠️ LLM nevrátil validní JSON: {e}\\n{result['output']}"
 
-
         state["intermediate_steps"] = result.get("intermediate_steps", [])
-    except Exception as e:   # ← pojistka, kdyby přece jen něco propadlo
+    except Exception as e:  # ← pojistka, kdyby přece jen něco propadlo
         err = f"⚠️ Nástroj selhal: {e}"
         state["answer"] = err
         state["intermediate_steps"] = [err]
     asyncio.create_task(learn(state.copy()))
     return state
+
 
 # --- Node 3: Learn (append to vectorstore) ------------------------------------
 async def learn(state: AgentState) -> AgentState:
@@ -485,12 +509,12 @@ async def learn(state: AgentState) -> AgentState:
 
     try:
         _ensure_cache()
-        new_embs = await _embeddings.aembed_documents(
-            [d.page_content for d in docs]
-        )
+        new_embs = await _embeddings.aembed_documents([d.page_content for d in docs])
         user_emb = new_embs[0]
         with _cache_lock:
-            if any(_cosine(user_emb, ex) > DUPLICATE_THRESHOLD for ex in _embedding_cache):
+            if any(
+                _cosine(user_emb, ex) > DUPLICATE_THRESHOLD for ex in _embedding_cache
+            ):
                 docs = [docs[1]]  # store assistant answer only
             else:
                 _embedding_cache.append(user_emb)
@@ -545,10 +569,12 @@ async def learn(state: AgentState) -> AgentState:
         pass
     return state
 
+
 # Apply timing decorators to key phases
 recall = timed("recall")(recall)
-act    = timed("act")(act)
-learn  = timed("learn")(learn)
+act = timed("act")(act)
+learn = timed("learn")(learn)
+
 
 # --- Public API -------------------------------------------------------------
 def _final_to_json(final_state: AgentState) -> str:
@@ -558,6 +584,7 @@ def _final_to_json(final_state: AgentState) -> str:
         intermediate_steps=[str(s) for s in steps] if steps else None,
     )
     return rr.json()
+
 
 # ---------------------------------------------------------------------------
 # Graf a workflow
@@ -573,17 +600,26 @@ graph.add_edge("act", END)
 # Kompilovaný workflow (lazy‑initialised, aby import nezdržoval start)
 workflow = graph.compile()
 
+
 # ---------------------------------------------------------------------------
 # Veřejné API – zůstává stejné jako v core.py
 # ---------------------------------------------------------------------------
 def handle_query(query: str) -> str:
     """Jediný veřejný vstup: zpracuje dotaz a vrátí odpověď."""
     final = asyncio.run(
-        workflow.ainvoke({"query": query, "answer": "", "intermediate_steps": [], "retrieved_context": ""})
+        workflow.ainvoke(
+            {
+                "query": query,
+                "answer": "",
+                "intermediate_steps": [],
+                "retrieved_context": "",
+            }
+        )
     )
     result = _final_to_json(final)
     _update_last_user_ts()
     return result
+
 
 # -------- STREAMING (yielduje JSON lines) ------------------------------------
 async def handle_query_stream(query: str):
@@ -592,19 +628,63 @@ async def handle_query_stream(query: str):
     final_state = None
 
     async for ev in workflow.astream_events(
-        {"query": query, "answer": "", "intermediate_steps": [], "retrieved_context": ""},
+        {
+            "query": query,
+            "answer": "",
+            "intermediate_steps": [],
+            "retrieved_context": "",
+        },
         version="v1",
     ):
         event_type = _ev_attr(ev, "event") or _ev_attr(ev, "event_name")
-        node_name  = _ev_attr(ev, "name")  or _ev_attr(ev, "node_name")
-        # detekce tokenů LLM
-        # -- průběžné streamování tokenů do UI
+        node_name = _ev_attr(ev, "name") or _ev_attr(ev, "node_name")
+
+        # --- Průběžné streamování tokenů LLM ---
         if event_type == "on_llm_new_token":
             data = _ev_attr(ev, "data", {})
-            token = data["token"] if isinstance(data, dict) else getattr(data, "token", "")
+            token = (
+                data["token"] if isinstance(data, dict) else getattr(data, "token", "")
+            )
             yield token
+            continue
 
-        # -- zachycení finálního stavu po uzlu "act"
+        # --- Streamování informací o běhu nástrojů ---
+        if event_type in {"on_agent_action", "on_tool_start", "on_tool_end"}:
+            data = _ev_attr(ev, "data", {})
+
+            action = None
+            if event_type == "on_agent_action":
+                action = (
+                    data.get("action")
+                    if isinstance(data, dict)
+                    else _ev_attr(data, "action")
+                )
+            tool = (
+                _ev_attr(action or data, "tool")
+                or _ev_attr(action or data, "name")
+                or node_name
+                or ""
+            )
+            tool_input = (
+                _ev_attr(action or data, "tool_input")
+                or _ev_attr(data, "input")
+                or _ev_attr(data, "output")
+                or ""
+            )
+
+            _short = (
+                json.dumps(tool_input)
+                if isinstance(tool_input, dict)
+                else str(tool_input)
+            )
+            _short = _short.replace("\n", " ")
+            if len(_short) > 60:
+                _short = _short[:60] + "…"
+            payload = f"🛠️ {tool}({_short})"
+            yield f"§STEP§{payload}"
+            continue
+
+        # --- Zachycení finálního stavu po uzlu "act" ---
         if event_type == "on_node_end" and node_name == "act":
             ds = _ev_attr(ev, "data", {})
             if isinstance(ds, dict):
@@ -625,8 +705,8 @@ async def handle_query_stream(query: str):
     yield "\n" + _final_to_json(final_state)
     _update_last_user_ts()
 
+
 # Convenience alias pro případné externí diagnostiky
 agent_workflow = workflow
 
 __all__ = ["handle_query", "handle_query_stream", "agent_workflow", "ResearchResponse"]
-
