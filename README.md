@@ -1,27 +1,24 @@
-README.md file that needsy to be updated accordingly to current project state and structure.
+# 🧠 Universal AI Agent
 
-# 🧠 Universal AI Agent (Productoo P4)
-
-*Conversational assistant for product managers, analysts and engineers working on Productoo’s P4 manufacturing suite.*
+Conversational assistant tailored for **Productoo's P4** platform. It leverages OpenAI models, a local knowledge base and several Jira utilities to help product teams research, plan and document features.
 
 ---
 
-## ✨ What it does now
+## Key Features
 
-| Category                      | Status          | Details                                                                                                                 |
-| ----------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **Conversational interface**  | **✅**           | CLI (`main.py`) **and** lightweight Gradio UI (`ui.py`).                                                                |
-| **Knowledge retrieval (RAG)** | **✅**           | Chroma vector‑store (default `./data/`, configurable via `CHROMA_DIR_V2`) continuously enriched with every Q\&A turn.                                      |
-| **Web search**                | **✅**           | DuckDuckGo (`searchWeb`) & Wikipedia snippet tool.                                                                      |
-| **Semantic web search**       | **β**           | Tavily semantic search if `TAVILY_API_KEY` is present.                                                                  |
-| **Jira integration**          | **✅**           | `jira_ideas_retriever` – lists *Idea* issues matching an optional keyword.                                              |
-| **File output**               | **✅**           | `save_text_to_file` stores each answer in a *new* timestamped file under `./output/`. Visible & downloadable in the UI. |
-| **Knowledge base loader**     | **✅**           | `kb_loader` tool syncs Confluence pages and local files into the knowledge base. |
-| **Continuous learning**       | **↺**           | Every chat exchange is appended to the vector store for long‑term memory.                                               |
+| Area | Description |
+| --- | --- |
+| **Multi-modal interface** | Command line client (`cli/main.py`) and Gradio web UI (`cli/ui.py` or `run.py`). |
+| **Retrieval-Augmented Generation** | Chroma vector store fed from Confluence, local files and previous chats (`CHROMA_DIR_V2` path). |
+| **Web search** | DuckDuckGo and Wikipedia snippets with optional semantic search via Tavily. |
+| **Jira integration** | Tools for listing Ideas, fetching issue detail, checking duplicates and updating descriptions. |
+| **Content generators** | Create Jira Ideas, Epics and User Stories from short prompts. |
+| **File ingestion** | Drop files into `./input` and import them with `process_input_files` or `kb_loader`. |
+| **Persistent memory** | Chat history saved to `persistent_chat_history.json` and stored in the vector DB. |
 
 ---
 
-## 🔎 Available tools
+## Available Tools
 
 | Tool name              | Purpose                                                                                   |
 | ---------------------- | ----------------------------------------------------------------------------------------- |
@@ -32,7 +29,6 @@ README.md file that needsy to be updated accordingly to current project state an
 | `tavily_search`        | LLM‑powered semantic web search (requires `TAVILY_API_KEY`).                              |
 | `save_text_to_file`    | Persist any text to `output/…` (timestamped).                                             |
 | `kb_loader`            | Import Confluence pages and new files from `input/` into the long‑term knowledge base. |
-| `clear_rag_memory`     | Delete vector‑store collections (`chat_memory`, `kb_docs` or all). |
 
 > **Planned tool** – `jira_issue_detail`: fetch a **single** Jira issue by key (e.g. `P4‑1234`) with full description, acceptance criteria, subtasks & comments.
 > *Benefit:* quick deep‑dives, faster duplicate detection.
@@ -59,58 +55,52 @@ README.md file that needsy to be updated accordingly to current project state an
 
 ---
 
-## 🚀 Quick start
+## Quick Start
 
 ```bash
-# 1. Install deps (create venv beforehand)
+# Install dependencies (preferably inside a virtual environment)
 pip install -r requirements.txt
 
-# 2. Configure API keys (.env)
-cp .env.example .env  # fill in OPENAI_API_KEY, JIRA_AUTH_TOKEN …
+# Set environment variables (.env file or shell)
+export OPENAI_API_KEY="sk-..."
+export JIRA_AUTH_TOKEN="atlassian-..."
+# optional
+export TAVILY_API_KEY="..."
 
-# 3a. Run conversational CLI
-python main.py
+# Launch web interface
+python run.py
 
-# 3b. Or launch local web UI
-python ui.py  # opens http://127.0.0.1:7860
+# Or run the simple CLI
+python cli/main.py
 ```
 
-### Required environment variables
+Key environment options:
 
-```dotenv
-OPENAI_API_KEY="sk‑…"
-JIRA_AUTH_TOKEN="atlassian‑…"
-TAVILY_API_KEY=""           # optional
+- `CHROMA_DIR_V2` – path to the Chroma persistence directory (default `data/`).
+- `AGENT_VERSION` – set to `v1` to use the older LangChain core; default `v2` uses LangGraph.
+- `PERSISTENT_HISTORY_FILE` – JSON file storing chat history (default `persistent_chat_history.json`).
+
+---
+
+## Project Layout
+
+```
+agent/                # LangChain/LangGraph cores and public API
+cli/                  # CLI and Gradio UI entry points
+services/             # Business logic for Jira, RAG and web search
+tools/                # LangChain tool wrappers
+prompts/              # Jinja2 templates for Jira content generators
+input/                # Drop-box for user files
+output/               # Saved answers (git‑ignored)
 ```
 
 ---
 
-## 🗂 Project layout
+## Roadmap
 
-```
-📁 universalagent/
-├── main.py                # conversational loop
-├── tools.py               # LangChain Tools (search, Jira, save, …)
-├── ui.py                  # Gradio front‑end
-├── jira_retriever.py      # low‑level Jira REST helper
-├── rag_confluence_loader.py  # import Confluence pages into RAG
-├── rag_vectorstore.py     # bulk‑import local docs into RAG
-├── output/                # timestamped txt exports (git‑ignored)
-└── data/                # vector DB (path via $CHROMA_DIR_V2)
-```
+- Incremental Confluence synchronisation
+- Automatic summarisation of fresh Jira tickets
+- Duplicate idea detection improvements
+- KPI dashboard and basic tests
 
----
-
-## 🛣 Next steps (roadmap)
-
-| Priority | Item                                     | Rationale                                                                               |
-| -------- | ---------------------------------------- | --------------------------------------------------------------------------------------- |
-| **⬆**    | **`jira_issue_detail` Tool**             | Fetch full Jira issue by key; enable deep context for duplicates & acceptance criteria. |                                            |
-|  —       | Confluence incremental sync              | Schedule nightly run; mark removed pages as archived in RAG.                            |
-|  —       | Auto‑summarise fresh Jira tickets to RAG | “Chronicle” new issues daily for fast retrieval.                                        |
-|  —       | Duplicate‑idea detector                  | Hash & embedding similarity across Jira Ideas.                                          |
-|  —       | KPI dashboard                            | Track solved tickets, average cycle‑time, top requested features.                       |                                |
-|  —       | Unit & integration tests                 | pytest + Playwright for UI workflows.                                                   |
-|  —       | Create Jira Epics, Stories & Release notes  | Write content of jira issues                                                  |
-
-Contributions & ideas welcome – open an issue or ping **@tomas.ventruba**.
+Contributions are welcome!
