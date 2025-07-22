@@ -411,7 +411,8 @@ def learn(state: AgentState) -> AgentState:
 
     try:
         total = _chat_store.get_total_records()
-        if total > MAX_CHAT_RECORDS:
+        # Defer costly sort/delete until we exceed the limit by a margin
+        if total > MAX_CHAT_RECORDS + 500:
             over = total - MAX_CHAT_RECORDS
             res = _chat_store.get(include=["metadatas"], limit=None)
             records = list(zip(res["ids"], res["metadatas"]))
