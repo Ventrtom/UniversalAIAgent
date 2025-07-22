@@ -148,7 +148,8 @@ _short_term_memory = ConversationBufferWindowMemory(
     k=SHORT_WINDOW,
     memory_key="chat_history",
     return_messages=True,
-    output_key="output"
+    output_key="output",
+    input_key="query",
 )
 
 # 2) Persistent chat log (restored across restarts → feeds the window buffer)
