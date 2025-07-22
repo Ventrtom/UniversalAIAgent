@@ -15,6 +15,11 @@ venv/
 *.log
 
 # Vector db
+<<<<<<< HEAD
+rag_chroma_db/
+rag_chroma_db_v2/
+=======
+>>>>>>> 82c7645711898883d7bef1ac438e6d6832722504
 data/
 
 output/
