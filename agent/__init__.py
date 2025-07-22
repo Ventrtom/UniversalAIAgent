@@ -7,6 +7,9 @@ Instantiates the Universal AI Agent.
 from importlib import import_module
 from typing import TYPE_CHECKING, TypeAlias, Union
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 _sel = os.getenv("AGENT_VERSION", "v2").lower()
 
