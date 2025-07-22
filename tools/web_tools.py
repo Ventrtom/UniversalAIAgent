@@ -6,6 +6,7 @@ from langchain.tools import Tool
 from langchain_community.tools import DuckDuckGoSearchRun, WikipediaQueryRun
 from langchain_community.utilities import WikipediaAPIWrapper
 from tavily import TavilyClient
+import asyncio
 import httpx
 
 # Opt‑out from OpenAI telemetry
@@ -92,9 +93,13 @@ async def _tavily_search(query: str) -> str:
     snippets = [f"- {r['url']}\n  {r['content'][:400].strip()}…" for r in results]
     return "\n\n".join(snippets)
 
+def _tavily_search_sync(query: str) -> str:
+    """Synchronní wrapper pro Tool."""
+    return asyncio.run(_tavily_search(query))
 
 tavily_tool = Tool(
     name="tavily_search",
+    func=_tavily_search_sync,
     coroutine=_tavily_search,
     description=(
         """
