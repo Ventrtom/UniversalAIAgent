@@ -88,7 +88,7 @@ if hasattr(openai, "telemetry") and hasattr(openai.telemetry, "TelemetryClient")
 # Vectorstore (shared long‑term memory)
 # ---------------------------------------------------------------------------
 CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "data")
-_embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+_embeddings = OpenAIEmbeddings(model="text-embedding-3-small", async_mode=True)
 
 # Two separate collections: external knowledge base and chat memory
 _kb_store = Chroma(
@@ -371,7 +371,7 @@ def act(state: AgentState) -> AgentState:
     return state
 
 # --- Node 3: Learn (append to vectorstore) ------------------------------------
-def learn(state: AgentState) -> AgentState:
+async def learn(state: AgentState) -> AgentState:
     """Zapíše dialog do dlouhodobé paměti po každém běhu."""
     ts = datetime.utcnow().isoformat()
     docs = [
@@ -387,7 +387,9 @@ def learn(state: AgentState) -> AgentState:
 
     try:
         _ensure_cache()
-        new_embs = _embeddings.embed_documents([d.page_content for d in docs])
+        new_embs = await _embeddings.aembed_documents(
+            [d.page_content for d in docs]
+        )
         user_emb = new_embs[0]
         if any(_cosine(user_emb, ex) > DUPLICATE_THRESHOLD for ex in _embedding_cache):
             docs = [docs[1]]  # store assistant answer only
