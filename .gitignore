@@ -20,6 +20,7 @@ rag_chroma_db/
 rag_chroma_db_v2/
 
 
-data/
+data/*
+!data/persistent_chat_history.json
 
 output/
