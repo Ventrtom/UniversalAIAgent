@@ -20,7 +20,7 @@ if hasattr(openai, "telemetry") and hasattr(openai.telemetry, "TelemetryClient")
 
 # ───────────────────────── Helper: Robust TXT Saver ──────────────────────────
 CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "data")
-OUTPUT_DIR = Path("output")
+OUTPUT_DIR = Path("files")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
@@ -58,7 +58,7 @@ save_tool = Tool(
         """
         Purpose
         -------
-        Persist any piece of plain text to a timestamped *.txt* file under ./output/.
+        Persist any piece of plain text to a timestamped *.txt* file under ./files/.
         Ideal for jotting down idea drafts, SWOT analyses, user-stories, or scratch notes
         that you might want to share later.
 

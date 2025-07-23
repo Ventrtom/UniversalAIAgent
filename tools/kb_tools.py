@@ -16,7 +16,7 @@ kb_loader_tool = Tool(
     coroutine=_update_kb,
     description=(
         "Synchronise the long-term knowledge base (`kb_docs`) with data from "
-        "Confluence and files dropped in `./input`.\n"
+        "Confluence and files dropped in `./files`.\n"
         "Call without arguments to load both sources.\n"
         "Use 'confluence' to sync only Confluence pages or 'files' (optionally "
         "'files:<filter>') to import local files. The filter accepts the same"

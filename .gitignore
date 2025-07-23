@@ -23,4 +23,7 @@ data/
 data/*
 !data/persistent_chat_history.json
 
-output/
+files/
+
+merge_project.py
+project_snapshot.md

@@ -1,28 +1,28 @@
 from __future__ import annotations
 
-"""Utilities for listing and reading files in the ``output`` folder."""
+"""Utilities for listing and reading files in the ``files`` folder."""
 
 from pathlib import Path
 
 from langchain_unstructured import UnstructuredLoader
 
-OUTPUT_DIR = Path("output")
+OUTPUT_DIR = Path("files")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 ALLOWED_EXTS = {".txt", ".md", ".csv", ".pdf"}
 
 
 def list_output_files() -> str:
-    """Return Markdown-formatted list of available output files."""
+    """Return Markdown-formatted list of available files."""
     files = [p.name for p in OUTPUT_DIR.iterdir() if p.is_file() and p.suffix.lower() in ALLOWED_EXTS]
     if not files:
-        return "Žádné soubory ve složce output nenalezeny."
+        return "Žádné soubory ve složce files nenalezeny."
     lines = [f"- {name}" for name in sorted(files)]
     return "\n".join(lines)
 
 
 def read_output_file(name: str) -> str:
-    """Return textual content of *name* from ``output`` if supported."""
+    """Return textual content of *name* from ``files`` if supported."""
     name = name.strip()
     if not name:
         return "Nebyl zadán název souboru."

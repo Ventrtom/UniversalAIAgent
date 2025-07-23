@@ -25,15 +25,15 @@ warnings.filterwarnings("ignore", message=".*LangChainDeprecationWarning.*")
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "false")
 
 # Constants
-OUTPUT_DIR = pathlib.Path("output")
-OUTPUT_DIR.mkdir(exist_ok=True)
+FILES_DIR = pathlib.Path("files")
+FILES_DIR.mkdir(exist_ok=True)
 MAX_HISTORY_LENGTH = 50  # Limit chat history to prevent memory issues
 
 
 def list_files() -> List[str]:
-    """Get sorted list of files in output directory."""
+    """Get sorted list of files in the shared directory."""
     try:
-        return sorted(p.name for p in OUTPUT_DIR.iterdir() if p.is_file())
+        return sorted(p.name for p in FILES_DIR.iterdir() if p.is_file())
     except Exception as e:
         logger.error(f"Error listing files: {e}")
         return []
@@ -44,7 +44,7 @@ def read_file(fname: str) -> str:
     if not fname:
         return ""
 
-    path = OUTPUT_DIR / fname
+    path = FILES_DIR / fname
     try:
         return path.read_text("utf-8")
     except UnicodeDecodeError:
@@ -57,10 +57,10 @@ def read_file(fname: str) -> str:
 
 
 def file_path(fname: Optional[str]) -> Optional[str]:
-    """Return full path to output file, or None if not specified."""
+    """Return full path to file in ``files`` or ``None`` if not specified."""
     if not fname:
         return None
-    p = OUTPUT_DIR / fname
+    p = FILES_DIR / fname
     return str(p) if p.exists() else None
 
 
@@ -155,7 +155,6 @@ def format_intermediate_steps(steps: List[Any]) -> str:
     return "\n".join(formatted_steps)
 
 
-
 async def chat_fn(
     msg: str,
     history: Optional[List[Dict[str, Any]]],
@@ -225,15 +224,15 @@ async def chat_fn(
     yield final_history, final_history, steps
 
 
-def file_selected(fname: Optional[str]) -> Tuple[str, gr.File]:
+def file_selected(fname: Optional[str]) -> Tuple[str, gr.File, str]:
     """Handle file selection with improved error handling."""
     if not fname:
-        return "", gr.File(visible=False)
+        return "", gr.File(visible=False), ""
 
     path = file_path(fname)
     preview = read_file(fname)
 
-    return preview, gr.File(value=path, visible=bool(path))
+    return preview, gr.File(value=path, visible=bool(path)), fname
 
 
 def trigger_download(fname: Optional[str]) -> gr.File:
@@ -243,6 +242,50 @@ def trigger_download(fname: Optional[str]) -> gr.File:
 
     path = file_path(fname)
     return gr.File(value=path, visible=bool(path))
+
+
+def save_file(
+    content: str, new_name: str, original_name: str
+) -> Tuple[gr.Dropdown, gr.File, str]:
+    """Persist edited content and optionally rename the file."""
+    if not original_name:
+        return refresh_choices(), gr.File(visible=False), ""
+
+    old_path = FILES_DIR / original_name
+    target_name = new_name.strip() or original_name
+    if not os.path.splitext(target_name)[1]:
+        target_name += old_path.suffix
+    new_path = FILES_DIR / target_name
+
+    if old_path != new_path:
+        try:
+            old_path.rename(new_path)
+        except Exception as exc:
+            logger.error(f"Error renaming file: {exc}")
+            new_path = old_path
+
+    try:
+        new_path.write_text(content, encoding="utf-8")
+    except Exception as exc:
+        logger.error(f"Error writing file: {exc}")
+
+    dropdown = gr.Dropdown(choices=list_files(), value=new_path.name)
+    download = gr.File(value=str(new_path), visible=True)
+    return dropdown, download, new_path.name
+
+
+def delete_file(fname: str) -> gr.Dropdown:
+    """Delete the selected file and refresh dropdown."""
+    if not fname:
+        return refresh_choices()
+
+    path = FILES_DIR / fname
+    try:
+        path.unlink()
+    except Exception as exc:
+        logger.error(f"Error deleting file {fname}: {exc}")
+
+    return refresh_choices()
 
 
 def clear_chat() -> Tuple[List, str]:
@@ -255,7 +298,8 @@ def launch() -> None:
     # Custom CSS for better styling
     custom_css = """
     .gradio-container {
-        max-width: 1200px !important;
+        max-width: 100% !important;
+        margin: 0 auto;
     }
     .chat-message {
         margin: 10px 0;
@@ -263,6 +307,13 @@ def launch() -> None:
     .file-preview {
         font-family: monospace;
         font-size: 12px;
+    }
+    .small-button {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.85rem;
+    }
+    .input-row textarea {
+        width: 100%;
     }
     """
 
@@ -286,17 +337,17 @@ def launch() -> None:
                     sanitize_html=False,
                 )
 
-                with gr.Row():
+                with gr.Row(elem_classes=["input-row"]):
                     msg = gr.Textbox(
                         lines=2,
-                        scale=10,
+                        scale=6,
                         placeholder="Zadejte svůj dotaz zde... (Shift+Enter pro odeslání)",
                         label="Váš dotaz",
                         show_copy_button=True,
                     )
                     with gr.Column(scale=1):
-                        submit_btn = gr.Button("📤 Odeslat", variant="primary")
-                        clear_btn = gr.Button("🗑️ Vyčistit", variant="secondary")
+                        submit_btn = gr.Button("📤 Odeslat", variant="primary", elem_classes=["small-button"])
+                        clear_btn = gr.Button("🗑️ Vyčistit", variant="secondary", elem_classes=["small-button"])
 
                 with gr.Row():
                     reveal = gr.Checkbox(
@@ -317,10 +368,12 @@ def launch() -> None:
                     info="Vyberte soubor pro náhled a stažení",
                 )
 
+                file_name = gr.Textbox(label="Název souboru", interactive=True)
+
                 content = gr.Textbox(
                     label="Náhled obsahu",
                     lines=14,
-                    interactive=False,
+                    interactive=True,
                     show_copy_button=True,
                     elem_classes=["file-preview"],
                 )
@@ -331,6 +384,8 @@ def launch() -> None:
 
                 with gr.Row():
                     refresh_btn = gr.Button("🔄 Obnovit seznam", variant="secondary")
+                    save_btn = gr.Button("💾 Uložit", variant="primary")
+                    delete_btn = gr.Button("🗑️ Smazat", variant="stop")
                     download_btn = gr.Button("⬇️ Stáhnout", variant="primary")
 
         # Chat interactions
@@ -352,17 +407,33 @@ def launch() -> None:
         ).then(lambda: gr.update(value="", visible=False), outputs=[live_log_markdown])
 
         # File interactions
-        files.change(file_selected, inputs=[files], outputs=[content, download_file])
+        files.change(
+            file_selected, inputs=[files], outputs=[content, download_file, file_name]
+        )
 
         refresh_btn.click(refresh_choices, outputs=[files]).then(
-            file_selected, inputs=[files], outputs=[content, download_file]
+            file_selected, inputs=[files], outputs=[content, download_file, file_name]
+        )
+
+        save_btn.click(
+            save_file,
+            inputs=[content, file_name, files],
+            outputs=[files, download_file, file_name],
+        )
+
+        delete_btn.click(delete_file, inputs=[files], outputs=[files]).then(
+            file_selected, inputs=[files], outputs=[content, download_file, file_name]
         )
 
         download_btn.click(trigger_download, inputs=[files], outputs=[download_file])
 
         # Load initial file if available
         if list_files():
-            demo.load(file_selected, inputs=[files], outputs=[content, download_file])
+            demo.load(
+                file_selected,
+                inputs=[files],
+                outputs=[content, download_file, file_name],
+            )
 
         # Configure demo
         demo.queue(max_size=10)
