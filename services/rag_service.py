@@ -18,7 +18,7 @@ from langchain.schema import Document
 
 # ───────────────────────── Helper: Robust TXT Saver ───────────────────────────
 CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "data")
-OUTPUT_DIR = Path("output")
+OUTPUT_DIR = Path("files")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 

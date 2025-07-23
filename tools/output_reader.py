@@ -1,4 +1,4 @@
-"""LangChain tools for listing and reading files from the output folder."""
+"""LangChain tools for listing and reading files from the shared folder."""
 from __future__ import annotations
 
 from langchain.tools import Tool
@@ -17,7 +17,7 @@ list_output_files_tool = Tool(
     name="list_output_files",
     func=_list,
     description=(
-        "Return names of files stored under ./output/ with extensions txt, md, csv or pdf."
+        "Return names of files stored under ./files/ with extensions txt, md, csv or pdf."
     ),
     handle_tool_error=True,
 )
@@ -26,7 +26,7 @@ read_output_file_tool = Tool(
     name="read_output_file",
     func=_read,
     description=(
-        "Read the content of a specific file from ./output/. The argument must be an existing file name."
+        "Read the content of a specific file from ./files/. The argument must be an existing file name."
     ),
     handle_tool_error=True,
 )

@@ -13,7 +13,7 @@ Conversational assistant tailored for **Productoo's P4** platform. It leverages 
 | **Web search** | DuckDuckGo and Wikipedia snippets with optional semantic search via Tavily. |
 | **Jira integration** | Tools for listing Ideas, fetching issue detail, checking duplicates and updating descriptions. |
 | **Content generators** | Create Jira Ideas, Epics and User Stories from short prompts. |
-| **File ingestion** | Drop files into `./input` and import them with `process_input_files` or `kb_loader`. |
+| **File ingestion** | Drop files into `./files` and import them with `process_input_files` or `kb_loader`. |
 | **Persistent memory** | Chat history saved to `data/persistent_chat_history.json` and stored in the vector DB. |
 
 ---
@@ -27,10 +27,10 @@ Conversational assistant tailored for **Productoo's P4** platform. It leverages 
 | `rag_retriever`        | Fetch up to 4 most relevant chunks from the internal vector store (docs, roadmap, chats). |
 | `jira_ideas_retriever` | List *Ideas* from Jira project **P4**; optional `keyword` filter.                         |
 | `tavily_search`        | LLM‑powered semantic web search (requires `TAVILY_API_KEY`).                              |
-| `save_text_to_file`    | Persist any text to `output/…`; allows custom filename or timestamped default. |
-| `list_output_files`    | Show available `.txt`, `.md`, `.csv` and `.pdf` files saved under `output/`. |
-| `read_output_file`     | Read the contents of a chosen file from `output/`. |
-| `kb_loader`            | Import Confluence pages and new files from `input/` into the long‑term knowledge base. |
+| `save_text_to_file`    | Persist any text to `files/…`; allows custom filename or timestamped default. |
+| `list_output_files`    | Show available `.txt`, `.md`, `.csv` and `.pdf` files saved under `files/`. |
+| `read_output_file`     | Read the contents of a chosen file from `files/`. |
+| `kb_loader`            | Import Confluence pages and new files from `files/` into the long‑term knowledge base. |
 
 > **Planned tool** – `jira_issue_detail`: fetch a **single** Jira issue by key (e.g. `P4‑1234`) with full description, acceptance criteria, subtasks & comments.
 > *Benefit:* quick deep‑dives, faster duplicate detection.
@@ -92,8 +92,7 @@ cli/                  # CLI and Gradio UI entry points
 services/             # Business logic for Jira, RAG and web search
 tools/                # LangChain tool wrappers
 prompts/              # Jinja2 templates for Jira content generators
-input/                # Drop-box for user files
-output/               # Saved answers (git‑ignored)
+ files/                # Shared space for user uploads and saved answers
 ```
 
 ---
