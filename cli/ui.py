@@ -225,15 +225,15 @@ async def chat_fn(
     yield final_history, final_history, steps
 
 
-def file_selected(fname: Optional[str]) -> Tuple[str, gr.File]:
+def file_selected(fname: Optional[str]) -> Tuple[str, gr.File, str]:
     """Handle file selection with improved error handling."""
     if not fname:
-        return "", gr.File(visible=False)
+        return "", gr.File(visible=False), ""
 
     path = file_path(fname)
     preview = read_file(fname)
 
-    return preview, gr.File(value=path, visible=bool(path))
+    return preview, gr.File(value=path, visible=bool(path)), fname
 
 
 def trigger_download(fname: Optional[str]) -> gr.File:
@@ -243,6 +243,34 @@ def trigger_download(fname: Optional[str]) -> gr.File:
 
     path = file_path(fname)
     return gr.File(value=path, visible=bool(path))
+
+
+def save_file(content: str, new_name: str, original_name: str) -> Tuple[gr.Dropdown, gr.File, str]:
+    """Persist edited content and optionally rename the file."""
+    if not original_name:
+        return refresh_choices(), gr.File(visible=False), ""
+
+    old_path = FILES_DIR / original_name
+    target_name = new_name.strip() or original_name
+    if not os.path.splitext(target_name)[1]:
+        target_name += old_path.suffix
+    new_path = FILES_DIR / target_name
+
+    if old_path != new_path:
+        try:
+            old_path.rename(new_path)
+        except Exception as exc:
+            logger.error(f"Error renaming file: {exc}")
+            new_path = old_path
+
+    try:
+        new_path.write_text(content, encoding="utf-8")
+    except Exception as exc:
+        logger.error(f"Error writing file: {exc}")
+
+    dropdown = gr.Dropdown(choices=list_files(), value=new_path.name)
+    download = gr.File(value=str(new_path), visible=True)
+    return dropdown, download, new_path.name
 
 
 def clear_chat() -> Tuple[List, str]:
@@ -317,10 +345,12 @@ def launch() -> None:
                     info="Vyberte soubor pro náhled a stažení",
                 )
 
+                file_name = gr.Textbox(label="Název souboru", interactive=True)
+
                 content = gr.Textbox(
                     label="Náhled obsahu",
                     lines=14,
-                    interactive=False,
+                    interactive=True,
                     show_copy_button=True,
                     elem_classes=["file-preview"],
                 )
@@ -331,6 +361,7 @@ def launch() -> None:
 
                 with gr.Row():
                     refresh_btn = gr.Button("🔄 Obnovit seznam", variant="secondary")
+                    save_btn = gr.Button("💾 Uložit", variant="primary")
                     download_btn = gr.Button("⬇️ Stáhnout", variant="primary")
 
         # Chat interactions
@@ -352,17 +383,23 @@ def launch() -> None:
         ).then(lambda: gr.update(value="", visible=False), outputs=[live_log_markdown])
 
         # File interactions
-        files.change(file_selected, inputs=[files], outputs=[content, download_file])
+        files.change(file_selected, inputs=[files], outputs=[content, download_file, file_name])
 
         refresh_btn.click(refresh_choices, outputs=[files]).then(
-            file_selected, inputs=[files], outputs=[content, download_file]
+            file_selected, inputs=[files], outputs=[content, download_file, file_name]
+        )
+
+        save_btn.click(
+            save_file,
+            inputs=[content, file_name, files],
+            outputs=[files, download_file, file_name],
         )
 
         download_btn.click(trigger_download, inputs=[files], outputs=[download_file])
 
         # Load initial file if available
         if list_files():
-            demo.load(file_selected, inputs=[files], outputs=[content, download_file])
+            demo.load(file_selected, inputs=[files], outputs=[content, download_file, file_name])
 
         # Configure demo
         demo.queue(max_size=10)
