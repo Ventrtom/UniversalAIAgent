@@ -25,15 +25,15 @@ warnings.filterwarnings("ignore", message=".*LangChainDeprecationWarning.*")
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "false")
 
 # Constants
-OUTPUT_DIR = pathlib.Path("output")
-OUTPUT_DIR.mkdir(exist_ok=True)
+FILES_DIR = pathlib.Path("files")
+FILES_DIR.mkdir(exist_ok=True)
 MAX_HISTORY_LENGTH = 50  # Limit chat history to prevent memory issues
 
 
 def list_files() -> List[str]:
-    """Get sorted list of files in output directory."""
+    """Get sorted list of files in the shared directory."""
     try:
-        return sorted(p.name for p in OUTPUT_DIR.iterdir() if p.is_file())
+        return sorted(p.name for p in FILES_DIR.iterdir() if p.is_file())
     except Exception as e:
         logger.error(f"Error listing files: {e}")
         return []
@@ -44,7 +44,7 @@ def read_file(fname: str) -> str:
     if not fname:
         return ""
 
-    path = OUTPUT_DIR / fname
+    path = FILES_DIR / fname
     try:
         return path.read_text("utf-8")
     except UnicodeDecodeError:
@@ -57,10 +57,10 @@ def read_file(fname: str) -> str:
 
 
 def file_path(fname: Optional[str]) -> Optional[str]:
-    """Return full path to output file, or None if not specified."""
+    """Return full path to file in ``files`` or ``None`` if not specified."""
     if not fname:
         return None
-    p = OUTPUT_DIR / fname
+    p = FILES_DIR / fname
     return str(p) if p.exists() else None
 
 

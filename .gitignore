@@ -23,4 +23,4 @@ data/
 data/*
 !data/persistent_chat_history.json
 
-output/
+files/

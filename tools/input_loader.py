@@ -21,7 +21,7 @@ process_input_tool = Tool(
         """
         Purpose
         -------
-        Scan the local **`./input`** drop-folder, import every file that matches the
+        Scan the local **`./files`** drop-folder, import every file that matches the
         given filter into the Chroma vector database so RAG queries can reference
         them, and return a one-sentence Markdown summary per file.
 

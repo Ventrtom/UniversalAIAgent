@@ -18,7 +18,7 @@ from langchain_unstructured import UnstructuredLoader
 from langchain_community.vectorstores.utils import filter_complex_metadata
 
 CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "data")
-INPUT_DIR = Path("input")
+INPUT_DIR = Path("files")
 INPUT_DIR.mkdir(exist_ok=True)
 
 _embeddings = OpenAIEmbeddings(model="text-embedding-3-small")

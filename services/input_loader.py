@@ -1,9 +1,9 @@
 # services/input_loader.py
 
 """
-Input Loader – import files from ./input do Chroma vektorové DB
+Input Loader – import files from ./files do Chroma vektorové DB
 ---------------------------------------------------------------
-➤ Přetahuje soubory z lokální složky `./input` (případně podmnožinu podle
+➤ Přetahuje soubory z lokální složky `./files` (případně podmnožinu podle
   argumentu) a indexuje je pro RAG dotazy.
 
 Argumenty (string):
@@ -32,7 +32,7 @@ from langchain_community.vectorstores.utils import filter_complex_metadata
 
 # ---- konfigurace -----------------------------------------------------------
 CHROMA_DIR = os.getenv("CHROMA_DIR_V2", "data")
-INPUT_DIR = Path("input")
+INPUT_DIR = Path("files")
 INPUT_DIR.mkdir(exist_ok=True)
 
 _embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
