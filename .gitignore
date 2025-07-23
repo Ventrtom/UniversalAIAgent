@@ -26,3 +26,4 @@ data/*
 files/
 
 merge_project.py
+project_snapshot.md
