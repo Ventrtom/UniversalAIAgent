@@ -113,6 +113,7 @@ from tools import (
     jira_issue_links,
     kb_loader_tool,
     clear_rag_memory_tool,
+    self_inspection_tool,
 )
 
 # ---------------------------------------------------------------------------
@@ -387,6 +388,7 @@ _TOOLS = [
     jira_issue_links,
     kb_loader_tool,
     clear_rag_memory_tool,
+    self_inspection_tool,
 ]
 _TOOLS = list(map(_safe, _TOOLS))
 
