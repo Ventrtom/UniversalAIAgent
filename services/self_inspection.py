@@ -6,6 +6,8 @@ from datetime import datetime
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
+__all__ = ["agent_introspect"]
+
 def generate_project_snapshot(root_dir: Path) -> str:
     # Inspirace merge_project.py
     result = StringIO()
@@ -33,9 +35,10 @@ def summarize_agent(snapshot: str) -> str:
     chain = prompt | llm
     return chain.invoke({"snapshot": snapshot}).content
 
-def agent_introspect_tool() -> str:
+def agent_introspect() -> str:
+    """Return a short high level summary of this project."""
     root = Path(__file__).parent.parent  # root of project
     snapshot = generate_project_snapshot(root)
     summary = summarize_agent(snapshot)
     timestamp = datetime.now().isoformat()
-    return f"#Agent Introspection ({timestamp})\n\n{summary}"
+    return f"# Agent Introspection ({timestamp})\n\n{summary}"

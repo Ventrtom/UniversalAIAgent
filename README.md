@@ -32,6 +32,7 @@ Conversational assistant tailored for **Productoo's P4** platform. It leverages 
 | `list_output_files`    | Show available `.txt`, `.md`, `.csv` and `.pdf` files saved under `files/`. |
 | `read_output_file`     | Read the contents of a chosen file from `files/`. |
 | `kb_loader`            | Import Confluence pages and new files from `files/` into the long‑term knowledge base. |
+| `self_inspection`      | Summarize the agent's own architecture and current abilities. |
 
 > **Planned tool** – `jira_issue_detail`: fetch a **single** Jira issue by key (e.g. `P4‑1234`) with full description, acceptance criteria, subtasks & comments.
 > *Benefit:* quick deep‑dives, faster duplicate detection.
