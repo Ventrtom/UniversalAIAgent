@@ -14,7 +14,7 @@ Conversational assistant tailored for **Productoo's P4** platform. It leverages 
 | **Jira integration** | Tools for listing Ideas, fetching issue detail, checking duplicates and updating descriptions. |
 | **Content generators** | Create Jira Ideas, Epics and User Stories from short prompts. |
 | **File ingestion** | Drop files into `./files` and import them with `process_input_files` or `kb_loader`. |
-| **File editing** | Edit and rename text files directly from the web UI. |
+| **File editing** | Edit, rename and delete text files directly from the web UI. |
 | **Persistent memory** | Chat history saved to `data/persistent_chat_history.json` and stored in the vector DB. |
 
 ---
