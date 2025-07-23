@@ -24,3 +24,5 @@ data/*
 !data/persistent_chat_history.json
 
 files/
+
+merge_project.py
