@@ -1,9 +1,9 @@
-langchain>=0.2.9,<1.0
+langchain>=0.1.17
 wikipedia
 langchain-community
 langchain-openai
 langchain-anthropic
-langchain-chroma
+langchain-chroma>=0.2.5,<0.3.0
 langchain-unstructured
 python-dotenv
 pydantic
@@ -12,10 +12,10 @@ tavily-python
 atlassian-python-api
 gradio
 pytest
-chromadb
+chromadb>=1.0.15,<2.0.0
 unstructured
 jinja2
-langgraph
+langgraph>=0.0.24
 importlib
 logging
 apscheduler
