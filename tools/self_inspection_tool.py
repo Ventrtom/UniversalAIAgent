@@ -8,7 +8,7 @@ from services.self_inspection import agent_introspect
 
 self_inspection_tool = Tool(
     name="self_inspection",
-    func=lambda: agent_introspect(),
+    func=lambda _=None: agent_introspect(),
     description=(
         "Provide a concise summary of the agent's architecture, capabilities and limitations."
     ),

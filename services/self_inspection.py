@@ -29,7 +29,7 @@ def generate_project_snapshot(root_dir: Path) -> str:
 def summarize_agent(snapshot: str) -> str:
     llm = ChatOpenAI(model="gpt-4o", temperature=0.2)
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a software architecture analyst. Summarize the architecture, capabilities and tools of the assistant based on this code snapshot."),
+        ("system", "You are a software architecture analyst. Summarize the architecture, capabilities and tools of the AI Agentic assistant based on this code snapshot."),
         ("human", "{snapshot}")
     ])
     chain = prompt | llm
