@@ -155,7 +155,6 @@ def format_intermediate_steps(steps: List[Any]) -> str:
     return "\n".join(formatted_steps)
 
 
-
 async def chat_fn(
     msg: str,
     history: Optional[List[Dict[str, Any]]],
@@ -245,7 +244,9 @@ def trigger_download(fname: Optional[str]) -> gr.File:
     return gr.File(value=path, visible=bool(path))
 
 
-def save_file(content: str, new_name: str, original_name: str) -> Tuple[gr.Dropdown, gr.File, str]:
+def save_file(
+    content: str, new_name: str, original_name: str
+) -> Tuple[gr.Dropdown, gr.File, str]:
     """Persist edited content and optionally rename the file."""
     if not original_name:
         return refresh_choices(), gr.File(visible=False), ""
@@ -271,6 +272,20 @@ def save_file(content: str, new_name: str, original_name: str) -> Tuple[gr.Dropd
     dropdown = gr.Dropdown(choices=list_files(), value=new_path.name)
     download = gr.File(value=str(new_path), visible=True)
     return dropdown, download, new_path.name
+
+
+def delete_file(fname: str) -> gr.Dropdown:
+    """Delete the selected file and refresh dropdown."""
+    if not fname:
+        return refresh_choices()
+
+    path = FILES_DIR / fname
+    try:
+        path.unlink()
+    except Exception as exc:
+        logger.error(f"Error deleting file {fname}: {exc}")
+
+    return refresh_choices()
 
 
 def clear_chat() -> Tuple[List, str]:
@@ -362,6 +377,7 @@ def launch() -> None:
                 with gr.Row():
                     refresh_btn = gr.Button("🔄 Obnovit seznam", variant="secondary")
                     save_btn = gr.Button("💾 Uložit", variant="primary")
+                    delete_btn = gr.Button("🗑️ Smazat", variant="stop")
                     download_btn = gr.Button("⬇️ Stáhnout", variant="primary")
 
         # Chat interactions
@@ -383,7 +399,9 @@ def launch() -> None:
         ).then(lambda: gr.update(value="", visible=False), outputs=[live_log_markdown])
 
         # File interactions
-        files.change(file_selected, inputs=[files], outputs=[content, download_file, file_name])
+        files.change(
+            file_selected, inputs=[files], outputs=[content, download_file, file_name]
+        )
 
         refresh_btn.click(refresh_choices, outputs=[files]).then(
             file_selected, inputs=[files], outputs=[content, download_file, file_name]
@@ -395,11 +413,19 @@ def launch() -> None:
             outputs=[files, download_file, file_name],
         )
 
+        delete_btn.click(delete_file, inputs=[files], outputs=[files]).then(
+            file_selected, inputs=[files], outputs=[content, download_file, file_name]
+        )
+
         download_btn.click(trigger_download, inputs=[files], outputs=[download_file])
 
         # Load initial file if available
         if list_files():
-            demo.load(file_selected, inputs=[files], outputs=[content, download_file, file_name])
+            demo.load(
+                file_selected,
+                inputs=[files],
+                outputs=[content, download_file, file_name],
+            )
 
         # Configure demo
         demo.queue(max_size=10)
