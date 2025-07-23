@@ -298,7 +298,8 @@ def launch() -> None:
     # Custom CSS for better styling
     custom_css = """
     .gradio-container {
-        max-width: 1200px !important;
+        max-width: 100% !important;
+        margin: 0 auto;
     }
     .chat-message {
         margin: 10px 0;
@@ -306,6 +307,13 @@ def launch() -> None:
     .file-preview {
         font-family: monospace;
         font-size: 12px;
+    }
+    .small-button {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.85rem;
+    }
+    .input-row textarea {
+        width: 100%;
     }
     """
 
@@ -329,17 +337,17 @@ def launch() -> None:
                     sanitize_html=False,
                 )
 
-                with gr.Row():
+                with gr.Row(elem_classes=["input-row"]):
                     msg = gr.Textbox(
                         lines=2,
-                        scale=10,
+                        scale=6,
                         placeholder="Zadejte svůj dotaz zde... (Shift+Enter pro odeslání)",
                         label="Váš dotaz",
                         show_copy_button=True,
                     )
                     with gr.Column(scale=1):
-                        submit_btn = gr.Button("📤 Odeslat", variant="primary")
-                        clear_btn = gr.Button("🗑️ Vyčistit", variant="secondary")
+                        submit_btn = gr.Button("📤 Odeslat", variant="primary", elem_classes=["small-button"])
+                        clear_btn = gr.Button("🗑️ Vyčistit", variant="secondary", elem_classes=["small-button"])
 
                 with gr.Row():
                     reveal = gr.Checkbox(
