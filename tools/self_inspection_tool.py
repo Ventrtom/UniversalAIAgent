@@ -1,9 +1,9 @@
-"""LangChain tool exposing services.self_inspection.agent_introspect."""
+"""LangChain tool exposing :func:`services.agent_introspect`."""
 from __future__ import annotations
 
 from langchain.tools import Tool
 
-from services.self_inspection import agent_introspect
+from services import agent_introspect
 
 
 self_inspection_tool = Tool(
