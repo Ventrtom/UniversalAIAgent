@@ -15,6 +15,9 @@ from .jira_content_service import (
 )
 from .input_loader import process_input_files
 from .output_reader import list_output_files, read_output_file
+from .kb_loader import update_kb
+from .clear_rag_memory import clear_memory
+from .self_inspection import agent_introspect
 
 __all__ = [
     "JiraClient",
@@ -28,8 +31,13 @@ __all__ = [
     "wiki_snippet",
     "tavily_search",
     "_extract_text_from_adf",
-    "jira_content_tools",
     "process_input_files",
+    "update_kb",
+    "clear_memory",
+    "agent_introspect",
     "list_output_files",
     "read_output_file",
+    "enhance_idea",
+    "epic_from_idea",
+    "user_stories_for_epic",
 ]

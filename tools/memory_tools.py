@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-"""LangChain tool exposing :func:`services.clear_rag_memory.clear_memory`."""
+"""LangChain tool exposing :func:`services.clear_memory`."""
 
 from langchain.tools import Tool
 
-from services.clear_rag_memory import clear_memory
+from services import clear_memory
 
 
 def _clear(mem: str = "all") -> str:
