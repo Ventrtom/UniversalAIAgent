@@ -19,6 +19,7 @@ from .input_loader import process_input_tool
 from .kb_tools import kb_loader_tool
 from .memory_tools import clear_rag_memory_tool
 from .output_reader import list_output_files_tool, read_output_file_tool
+from .self_inspection_tool import self_inspection_tool
 
 __all__ = [
     "search_tool",
@@ -38,6 +39,7 @@ __all__ = [
     "jira_issue_links",
     "kb_loader_tool",
     "clear_rag_memory_tool",
+    "self_inspection_tool",
     "list_output_files_tool",
     "read_output_file_tool",
 ]

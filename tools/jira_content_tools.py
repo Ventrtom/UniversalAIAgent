@@ -25,7 +25,7 @@ import asyncio
 from langchain.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from services.jira_content_service import (
+from services import (
     enhance_idea as _enhance_idea,
     epic_from_idea as _epic_from_idea,
     user_stories_for_epic as _user_stories_for_epic,
