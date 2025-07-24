@@ -15,6 +15,7 @@ import functools
 from typing import Optional, List, Dict, Any, Tuple, AsyncGenerator
 
 from agent import handle_query, handle_query_stream, ResearchResponse
+from openai import OpenAI
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,6 +29,9 @@ os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "false")
 FILES_DIR = pathlib.Path("files")
 FILES_DIR.mkdir(exist_ok=True)
 MAX_HISTORY_LENGTH = 50  # Limit chat history to prevent memory issues
+
+# OpenAI client for Whisper transcription
+openai_client = OpenAI()
 
 
 def list_files() -> List[str]:
@@ -70,6 +74,21 @@ def refresh_choices() -> gr.Dropdown:
     return gr.Dropdown(choices=choices, value=choices[0] if choices else None)
 
 
+def transcribe_audio(path: str) -> str:
+    """Transcribe ``path`` using OpenAI Whisper."""
+    if not path:
+        return ""
+    try:
+        with open(path, "rb") as f:
+            out = openai_client.audio.transcriptions.create(
+                model="whisper-1", file=f
+            )
+        return out.text.strip()
+    except Exception as exc:  # pragma: no cover - network
+        logger.error(f"Audio transcription failed: {exc}")
+        raise
+
+
 def pretty_format_response(raw: str) -> str:
     """Format raw response for better display."""
     clean = raw.strip().removeprefix("```json").removesuffix("```").strip("` \n")
@@ -105,6 +124,30 @@ def limit_history(
     recent_messages = history[-(max_length - len(system_messages)) :]
 
     return system_messages + recent_messages
+
+
+def show_mic() -> Tuple[gr.Audio, gr.Markdown]:
+    """Reveal microphone input and reset status."""
+    return gr.update(visible=True, value=None), gr.update(value="", visible=False)
+
+
+def handle_recording(path: str) -> Tuple[gr.Audio, str, gr.Markdown]:
+    """Transcribe recording and populate the message box."""
+    if not path:
+        return gr.update(visible=False, value=None), "", gr.update(visible=False)
+    try:
+        text = transcribe_audio(path)
+        return (
+            gr.update(visible=False, value=None),
+            text,
+            gr.update(value="", visible=False),
+        )
+    except Exception as exc:  # pragma: no cover - network
+        return (
+            gr.update(visible=False, value=None),
+            "",
+            gr.update(value=f"❌ Přepis selhal: {exc}", visible=True),
+        )
 
 
 def format_intermediate_steps(steps: List[Any]) -> str:
@@ -345,9 +388,21 @@ def launch() -> None:
                         label="Váš dotaz",
                         show_copy_button=True,
                     )
+                    mic_btn = gr.Button(
+                        "🎤", variant="secondary", elem_classes=["small-button"], scale=1
+                    )
                     with gr.Column(scale=1):
-                        submit_btn = gr.Button("📤 Odeslat", variant="primary", elem_classes=["small-button"])
-                        clear_btn = gr.Button("🗑️ Vyčistit", variant="secondary", elem_classes=["small-button"])
+                        submit_btn = gr.Button(
+                            "📤 Odeslat", variant="primary", elem_classes=["small-button"]
+                        )
+                        clear_btn = gr.Button(
+                            "🗑️ Vyčistit", variant="secondary", elem_classes=["small-button"]
+                        )
+
+                audio_input = gr.Audio(
+                    source="microphone", type="filepath", visible=False, show_label=False
+                )
+                audio_status = gr.Markdown("", visible=False)
 
                 with gr.Row():
                     reveal = gr.Checkbox(
@@ -401,6 +456,16 @@ def launch() -> None:
             inputs=[msg, chatbot, reveal, steps_state],
             outputs=[chatbot, chatbot, steps_state],
         ).then(lambda: "", outputs=[msg])
+
+        mic_btn.click(show_mic, outputs=[audio_input, audio_status])
+        audio_input.stop_recording(
+            lambda: gr.update(value="⏳ Přepis…", visible=True),
+            outputs=[audio_status],
+        ).then(
+            handle_recording,
+            inputs=[audio_input],
+            outputs=[audio_input, msg, audio_status],
+        )
 
         clear_btn.click(clear_chat, outputs=[chatbot, msg]).then(
             lambda: [], outputs=[steps_state]
