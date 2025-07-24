@@ -1,6 +1,6 @@
 """LangChain Tool for updating the kb_docs memory."""
 from langchain.tools import Tool
-from services.kb_loader import update_kb
+from services import update_kb
 import asyncio
 
 

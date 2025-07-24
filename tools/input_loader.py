@@ -6,7 +6,7 @@ Wrapper, který zpracuje volitelný `arg` od agenta a přepošle ho do služebn�
 funkce.  Díky tomu může agent jemně řídit import (viz docstring v services).
 """
 from langchain.tools import Tool
-from services.input_loader import process_input_files
+from services import process_input_files
 
 
 def _process_input_files(arg: str = "") -> str:
