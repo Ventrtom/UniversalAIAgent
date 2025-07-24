@@ -360,6 +360,49 @@ def launch() -> None:
     }
     """
 
+    auto_stop_start_js = """
+    () => {
+        const el = document.getElementById('mic_recorder');
+        if (!el) return [];
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AudioContext();
+        navigator.mediaDevices.getUserMedia({audio:true}).then(stream => {
+            window.__autoStop_stream = stream;
+            const src = ctx.createMediaStreamSource(stream);
+            const proc = ctx.createScriptProcessor(1024,1,1);
+            window.__autoStop_ctx = ctx;
+            window.__autoStop_proc = proc;
+            let silenceStart = ctx.currentTime;
+            proc.onaudioprocess = e => {
+                const buf = e.inputBuffer.getChannelData(0);
+                let max = 0;
+                for (let i=0;i<buf.length;i++) if (Math.abs(buf[i])>max) max=Math.abs(buf[i]);
+                if (max>0.015) {
+                    silenceStart = ctx.currentTime;
+                } else if (ctx.currentTime - silenceStart > 5) {
+                    const stopBtn = el.querySelector('button[aria-label*="Stop"]');
+                    if (stopBtn) stopBtn.click();
+                }
+            };
+            src.connect(proc);
+            proc.connect(ctx.destination);
+        });
+        return [];
+    }
+    """
+
+    auto_stop_stop_js = """
+    () => {
+        if (window.__autoStop_proc) window.__autoStop_proc.disconnect();
+        if (window.__autoStop_ctx) window.__autoStop_ctx.close();
+        if (window.__autoStop_stream) window.__autoStop_stream.getTracks().forEach(t=>t.stop());
+        window.__autoStop_proc = null;
+        window.__autoStop_ctx = null;
+        window.__autoStop_stream = null;
+        return [];
+    }
+    """
+
     with gr.Blocks(
         title="Universal AI Agent", theme=gr.themes.Soft(), css=custom_css
     ) as demo:
@@ -400,7 +443,11 @@ def launch() -> None:
                         )
 
                 audio_input = gr.Audio(
-                    source="microphone", type="filepath", visible=False, show_label=False
+                    source="microphone",
+                    type="filepath",
+                    visible=False,
+                    show_label=False,
+                    elem_id="mic_recorder",
                 )
                 audio_status = gr.Markdown("", visible=False)
 
@@ -458,9 +505,14 @@ def launch() -> None:
         ).then(lambda: "", outputs=[msg])
 
         mic_btn.click(show_mic, outputs=[audio_input, audio_status])
+        audio_input.start_recording(
+            fn=None,
+            js=auto_stop_start_js,
+        )
         audio_input.stop_recording(
             lambda: gr.update(value="⏳ Přepis…", visible=True),
             outputs=[audio_status],
+            js=auto_stop_stop_js,
         ).then(
             handle_recording,
             inputs=[audio_input],
