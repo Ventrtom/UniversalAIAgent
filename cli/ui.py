@@ -443,7 +443,7 @@ def launch() -> None:
                         )
 
                 audio_input = gr.Audio(
-                    source="microphone",
+                    sources=["microphone"],
                     type="filepath",
                     visible=False,
                     show_label=False,
