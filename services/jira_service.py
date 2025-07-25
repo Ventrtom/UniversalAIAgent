@@ -12,7 +12,7 @@ import inspect
 
 from atlassian import Jira
 from langchain_openai import OpenAIEmbeddings
-from markdown2adf.markdown_to_adf import markdown_to_adf
+from utils.md_to_adf import wrap_markdown
 
 __all__ = [
     "JiraClient",
@@ -177,16 +177,7 @@ class JiraClient:  # pylint: disable=too-few-public-methods
             and fields_param.get("description", "").strip()
         ):
             md = fields_param["description"]
-            try:
-                adf_doc = markdown_to_adf(md)
-            except Exception:  # noqa: BLE001 -- keep description even if bad MD
-                adf_doc = {
-                    "version": 1,
-                    "type": "doc",
-                    "content": [
-                        {"type": "paragraph", "content": [{"type": "text", "text": md}]}
-                    ],
-                }
+            adf_doc = wrap_markdown(md)
             fields_param["description"] = adf_doc
 
         # 1️⃣ Vybereme metodu (update_issue › edit_issue › Issue.update)
