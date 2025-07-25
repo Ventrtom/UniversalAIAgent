@@ -10,6 +10,7 @@ from .rag_service import (
 from .web_service import search_web, wiki_snippet, tavily_search
 from .jira_content_service import (
     enhance_idea,
+    enhance_idea_adf,
     epic_from_idea,
     user_stories_for_epic,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "list_output_files",
     "read_output_file",
     "enhance_idea",
+    "enhance_idea_adf",
     "epic_from_idea",
     "user_stories_for_epic",
 ]

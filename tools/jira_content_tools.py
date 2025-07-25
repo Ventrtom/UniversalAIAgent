@@ -26,7 +26,7 @@ from langchain.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from services import (
-    enhance_idea as _enhance_idea,
+    enhance_idea_adf as _enhance_idea, # původní verze je "enhance_idea" tak stačí jen přepsat.
     epic_from_idea as _epic_from_idea,
     user_stories_for_epic as _user_stories_for_epic,
 )

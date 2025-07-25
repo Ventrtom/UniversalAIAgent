@@ -13,9 +13,10 @@ user_stories_for_epic(...)  -> Markdown list of INVEST-ready User Stories
 from __future__ import annotations
 
 import os
+import json
 import openai
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from langchain_openai import ChatOpenAI
@@ -45,9 +46,14 @@ def _render(name: str, **kwargs) -> str:
 
 # ── Internal helper ───────────────────────────────────────────────────────────
 def _run(prompt: str) -> str:
-    """Call the LLM synchronously and return trimmed text."""
+    """Call the LLM synchronously and return plain text (Markdown‑variant)."""
     return _llm.invoke(prompt).content.strip()
 
+# ADF helper ---------------------------------------------------------------
+def _run_json(prompt: str) -> Dict[str, Any]:
+    """Call LLM and parse response as JSON/ADF."""
+    raw = _llm.invoke(prompt).content.strip()
+    return json.loads(raw)
 
 # ── High-level generators ─────────────────────────────────────────────────────
 def enhance_idea(
@@ -66,6 +72,24 @@ def enhance_idea(
     )
     return _run(prompt)
 
+# ---------------------------- NEW ADF variant ----------------------------
+def enhance_idea_adf(
+    summary: str,
+    description: str | None = None,
+    audience: str = "mixed",
+    max_words: int = 360,
+) -> Dict[str, Any]:
+    """
+    Generate Jira‑Idea description **directly in ADF**.
+    """
+    prompt = _render(
+        "idea_adf.jinja2",
+        summary=summary,
+        description=description,
+        audience=audience,
+        max_words=max_words,
+    )
+    return _run_json(prompt)
 
 def epic_from_idea(
         summary: str,
@@ -108,6 +132,7 @@ def user_stories_for_epic(
 
 __all__: List[str] = [
     "enhance_idea",
+    "enhance_idea_adf",
     "epic_from_idea",
     "user_stories_for_epic",
 ]

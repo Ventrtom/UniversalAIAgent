@@ -31,3 +31,51 @@ DESCRIPTION: {{ description or '(none)' }}
 ### Task
 Rewrite the Raw Idea into a polished Jira Idea description using the **same four headings** (Problem, Proposed solution, Business value, Acceptance criteria).  
 Use active voice, quantify benefits, avoid jargon, keep total ≤ {{ max_words }} words.
+
+Return valid Atlassian Document Format (ADF) JSON (example bellow) and nothing else.
+
+{
+  "type": "doc",
+  "version": 1,
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 2 },
+      "content": [ { "type": "text", "text": "Problem" } ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "{{ summary | e }}" } ]
+    },
+
+    {
+      "type": "heading",
+      "attrs": { "level": 2 },
+      "content": [ { "type": "text", "text": "Proposed solution" } ]
+    },
+    {
+      "type": "paragraph",
+      "content": [ { "type": "text", "text": "{{ description or '' | e }}" } ]
+    },
+
+    {
+      "type": "heading",
+      "attrs": { "level": 2 },
+      "content": [ { "type": "text", "text": "Business value" } ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        { "type": "listItem",
+          "content": [
+            { "type": "paragraph",
+              "content": [
+                { "type": "text", "text": "Add at least two quantified benefits." }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
