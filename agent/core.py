@@ -402,6 +402,38 @@ _agent_executor = AgentExecutor(
     max_iterations=3,
 )
 
+def get_tool_names() -> list[str]:
+    """
+    Zpřístupní názvy dostupných nástrojů pro UI (vizualizace).
+    Jméno bereme z atributu .name, případně z __name__.
+    """
+    return [getattr(t, "name", getattr(t, "__name__", "tool")) for t in _TOOLS]
+
+
+# -------------------- Viz schema pro UI --------------------
+# Akumulační struktury pro aktuální topologii
+_GRAPH_NODES: set[str] = set()
+_GRAPH_EDGES: list[tuple[str, str]] = []
+
+def _norm_node(n) -> str:
+    # END je speciální sentinel z LangGraphu → chceme text "END"
+    return "END" if n == END else str(n)
+
+def _record_node(n) -> None:
+    _GRAPH_NODES.add(_norm_node(n))
+
+def _record_edge(a, b) -> None:
+    sa, tb = _norm_node(a), _norm_node(b)
+    _GRAPH_NODES.add(sa); _GRAPH_NODES.add(tb)
+    _GRAPH_EDGES.append((sa, tb))
+
+def get_graph_schema() -> dict:
+    """Aktuální snapshot topologie (nodes/edges) + dostupné tools."""
+    return {
+        "nodes": [{"id": n, "label": n} for n in sorted(_GRAPH_NODES)],
+        "edges": [{"source": s, "target": t} for (s, t) in _GRAPH_EDGES],
+        "tools": get_tool_names(),
+    }
 
 # ---------------------------------------------------------------------------
 # LangGraph: state model & nodes
@@ -593,12 +625,12 @@ def _final_to_json(final_state: AgentState) -> str:
 # Graf a workflow
 # ---------------------------------------------------------------------------
 graph = StateGraph(state_schema=AgentState)
-graph.add_node("recall", recall)
-graph.add_node("act", act)
+graph.add_node("recall", recall); _record_node("recall")
+graph.add_node("act", act);       _record_node("act")
 
 graph.set_entry_point("recall")
-graph.add_edge("recall", "act")
-graph.add_edge("act", END)
+graph.add_edge("recall", "act"); _record_edge("recall", "act")
+graph.add_edge("act", END);      _record_edge("act", END)
 
 # Kompilovaný workflow (lazy‑initialised, aby import nezdržoval start)
 workflow = graph.compile()
@@ -641,6 +673,16 @@ async def handle_query_stream(query: str):
     ):
         event_type = _ev_attr(ev, "event") or _ev_attr(ev, "event_name")
         node_name = _ev_attr(ev, "name") or _ev_attr(ev, "node_name")
+
+        # --- Node lifecycle events (for runtime viz) ---
+        if event_type in {"on_node_start", "on_node_end"}:
+            phase = "start" if event_type == "on_node_start" else "end"
+            try:
+                nm = node_name or ""
+                yield f"§NODE§{{\"phase\":\"{phase}\",\"name\":\"{nm}\"}}"
+            except Exception:
+                pass
+            continue
 
         # --- Průběžné streamování tokenů LLM ---
         if event_type == "on_llm_new_token":
@@ -712,4 +754,4 @@ async def handle_query_stream(query: str):
 # Convenience alias pro případné externí diagnostiky
 agent_workflow = workflow
 
-__all__ = ["handle_query", "handle_query_stream", "agent_workflow", "ResearchResponse"]
+__all__ = ["handle_query", "handle_query_stream", "agent_workflow", "ResearchResponse", "get_tool_names", "get_graph_schema"]

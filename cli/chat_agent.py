@@ -88,14 +88,17 @@ async def chat_fn(
     reveal: bool = False,
     steps: Optional[List[str]] = None,
     live_log_markdown: gr.Markdown | None = None,
+    viz_html: gr.HTML | None = None,
 ) -> AsyncGenerator[Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[str]], None]:
     """Handle chat interaction with the agent and yield streaming updates."""
     if not msg.strip():
-        yield history or [], history or [], steps or []
+        yield history or [], history or [], steps or [], gr.update()
+        yield history or [], history or [], steps or [], gr.update(), gr.update()
         return
     history = history or []
     steps = steps or []
     steps.clear()
+    viz_chunks: List[str] = []
     if live_log_markdown is not None:
         live_log_markdown.value = ""
         live_log_markdown.visible = True
@@ -104,17 +107,43 @@ async def chat_fn(
     history.append(bot)
     try:
         async for tok in handle_query_stream(msg):
+            if tok.startswith("§NODE§"):
+                # runtime viz: node lifecycle
+                try:
+                    evt_json = tok[7:]
+                    viz_chunks.append(f"<script>window.updateGraph({evt_json});</script>")
+                except Exception:
+                    pass
+                # nezasahujeme do textu v chatu – jen viz panel
+                current_history = limit_history(history)
+                yield (current_history, current_history, steps,
+                    gr.update(value="\n".join(f"**{i}.** {s}" for i, s in enumerate(steps, 1)), visible=True),
+                    gr.update(value=viz_chunks[-1]))
+                continue
             if tok.startswith("§STEP§"):
                 steps.append(tok[7:])
                 if live_log_markdown is not None:
                     live_log_markdown.value = "\n".join(
                         f"**{i}.** {s}" for i, s in enumerate(steps, 1)
                     )
+                tool_name = None
+                try:
+                    _payload = tok[7:]
+                    _w = _payload.split("🛠️", 1)[-1].strip()
+                    tool_name = _w.split("(", 1)[0].strip()
+                except Exception:
+                    tool_name = None
+                if tool_name:
+                    viz_chunks.append(f"<script>window.updateGraph({{'type':'tool','name':{json.dumps(tool_name)}}});</script>")
                 await asyncio.sleep(0)
+                current_history = limit_history(history)
+                yield (current_history, current_history, steps,
+                    gr.update(value="\n".join(f"**{i}.** {s}" for i, s in enumerate(steps, 1)), visible=True),
+                    gr.update(value=viz_chunks[-1]))
                 continue
             bot["content"] += tok
             current_history = limit_history(history)
-            yield current_history, current_history, steps
+            yield current_history, current_history, steps, gr.update(), gr.update()
         try:
             raw_json = bot["content"].splitlines()[-1]
             parsed = ResearchResponse.parse_raw(raw_json)
@@ -132,13 +161,85 @@ async def chat_fn(
         live_log_markdown.value = ""
         live_log_markdown.visible = False
         steps.clear()
-    yield final_history, final_history, steps
+    yield (final_history, final_history, steps,
+        gr.update(value="", visible=False),
+        gr.update()) 
 
 
 def clear_chat() -> Tuple[List, str]:
     """Utility used by the 'clear' button."""
     return [], ""
 
+# --- graf init po načtení stránky ------------------------------------------
+def graph_init() -> str:
+    """
+    Vrátí malý <script>, který předá do vizualizace seznam dostupných tools.
+    """
+    # import uvnitř funkce kvůli rychlejšímu startu a aby nebyla pevná vazba při testech
+    tools = []
+    try:
+        from agent import get_tool_names  # preferovaný export z balíčku
+        tools = get_tool_names()
+    except Exception:
+        try:
+            from agent.core import get_tool_names  # fallback pro případ, že není re-export
+            tools = get_tool_names()
+        except Exception:
+            tools = []
+    # voláme globální window.updateGraph z druhého HTML komponentu
+    return f"<script>window.updateGraph({{'type':'init','tools':{json.dumps(tools)}}});</script>"
+
+def graph_schema() -> dict:
+    """
+    Vrátí aktuální topologii grafu (nodes, edges, tools) jako Python dict
+    – bez jakéhokoli JS/HTML. Použije se jako vstup pro JS renderer v UI.
+    """
+    try:
+        from agent import get_graph_schema  # preferovaný export z balíčku
+        return get_graph_schema()
+    except Exception:
+        try:
+            from agent.core import get_graph_schema  # fallback, pokud není re-export
+            return get_graph_schema()
+        except Exception:
+            return {"nodes": [], "edges": [], "tools": []}
+
+def graph_snapshot() -> str:
+    """
+    Vygeneruje samostatný HTML blok s Cytoscape, naplněný aktuální topologií
+    (nodes/edges/tools) přímo z agentu.
+    """
+    try:
+        from agent import get_graph_schema
+        schema = get_graph_schema()
+    except Exception:
+        schema = {"nodes": [], "edges": [], "tools": []}
+
+    # Postavíme Cytoscape z aktuálních dat; bez runtime efektů
+    return f"""
+    <div id='cy' style="width:100%;height:70vh;border:1px solid #ddd;border-radius:8px;background:#fff"></div>
+    <script src="https://unpkg.com/cytoscape@3/dist/cytoscape.min.js"></script>
+    <script>
+    (function(){{
+      const data = {json.dumps(schema)};
+      const elements = [
+        ...data.nodes.map(n => ({{ data: {{ id: n.id, label: n.label }} }})),
+        ...data.edges.map(e => ({{ data: {{ source: e.source, target: e.target }} }})),
+      ];
+      const cy = cytoscape({{
+        container: document.getElementById('cy'),
+        elements,
+        layout: {{ name: 'breadthfirst', directed: true, padding: 10 }},
+        style: [
+          {{ selector:'node', style:{{ 'label':'data(label)','text-valign':'center','background-color':'#eee','border-width':1,'border-color':'#888' }} }},
+          {{ selector:'edge', style:{{ 'curve-style':'bezier','target-arrow-shape':'triangle','width':1,'line-color':'#bbb','target-arrow-color':'#bbb' }} }},
+        ]
+      }});
+      // necháváme window.updateGraph volné pro budoucí zvýrazňování, ale teď je to čistý snapshot
+      window.updateGraph = window.updateGraph || function(_){{}};
+    }})();
+    </script>
+    """
 
 __all__ = [
     "pretty_format_response",
