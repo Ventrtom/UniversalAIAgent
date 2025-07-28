@@ -117,10 +117,16 @@ def create_interface() -> gr.Blocks:
                 # Column to stack submit / clear vertically on taller screens
                 with gr.Column(scale=1):
                     mic_btn = gr.Button(
-                    "🎤",
-                    variant="secondary",
-                    elem_classes=["small-button"],
-                    scale=1,
+                        "🎤",
+                        variant="secondary",
+                        elem_id="mic_button",
+                        elem_classes=["small-button"],
+                        scale=1,
+                    )
+                    auto_listen = gr.Checkbox(
+                        label="Auto‑listening (wake word 'hey agent')",
+                        value=False,
+                        elem_id="auto_listen",
                     )
                     submit_btn = gr.Button(
                         "📤 Odeslat",
@@ -200,17 +206,24 @@ def create_interface() -> gr.Blocks:
             outputs=[chatbot, chatbot, steps_state],
         ).then(lambda: "", outputs=[msg])
 
-        mic_btn.click(audio_utils.show_mic, outputs=[audio_input, audio_status])
-        audio_input.start_recording(fn=None, js=audio_utils.AUTO_STOP_START_JS)
-        audio_input.stop_recording(
-            lambda: gr.update(value="⏳ Přepis…", visible=True),
-            outputs=[audio_status],
-            js=audio_utils.AUTO_STOP_STOP_JS,
+        mic_btn.click(
+            fn=None,
+            js=audio_utils.START_ONE_SHOT_RECORD_JS,
+            outputs=[audio_input, audio_status],
         ).then(
             audio_utils.handle_recording,
             inputs=[audio_input],
             outputs=[audio_input, msg, audio_status],
         )
+
+        # Toggle wake‑word listening
+        auto_listen.change(
+            fn=None,
+            js=audio_utils.TOGGLE_WAKE_LISTENER_JS,
+            inputs=[auto_listen],
+            outputs=[audio_status],
+        )
+
         audio_input.clear(
             audio_utils.cancel_recording,
             outputs=[audio_input, audio_status],

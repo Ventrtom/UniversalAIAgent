@@ -8,7 +8,7 @@ from typing import Tuple
 import gradio as gr
 from openai import OpenAI
 
-from .js_snippets import AUTO_STOP_START_JS, AUTO_STOP_STOP_JS
+from .js_snippets import AUTO_STOP_START_JS, AUTO_STOP_STOP_JS, MIC_TOGGLE_RECORD_JS, START_ONE_SHOT_RECORD_JS, TOGGLE_WAKE_LISTENER_JS
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,9 @@ def cancel_recording() -> Tuple[gr.Audio, gr.Markdown]:
 
 
 __all__ = [
+    "START_ONE_SHOT_RECORD_JS",
+    "TOGGLE_WAKE_LISTENER_JS",
+    "MIC_TOGGLE_RECORD_JS",
     "AUTO_STOP_START_JS",
     "AUTO_STOP_STOP_JS",
     "transcribe_audio",
