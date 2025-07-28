@@ -364,7 +364,7 @@ async def _jira_update_description(
     }
 
     try:
-        await asyncio.to_thread(_JIRA.update_issue, key, {"fields": {"description": adf_doc}})
+        await asyncio.to_thread(_JIRA.update_issue, key, {"fields": {"description": new_desc}})
     except Exception as exc:
         return f"❌ Aktualizace selhala: {exc}"
 

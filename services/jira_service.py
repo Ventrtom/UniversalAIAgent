@@ -12,6 +12,7 @@ import inspect
 
 from atlassian import Jira
 from langchain_openai import OpenAIEmbeddings
+from utils.md_to_adf import wrap_markdown
 
 __all__ = [
     "JiraClient",
@@ -169,6 +170,15 @@ class JiraClient:  # pylint: disable=too-few-public-methods
         data = data or {}
         fields_param = data.get("fields")
         update_param = data.get("update")
+
+        if (
+            fields_param
+            and isinstance(fields_param.get("description"), str)
+            and fields_param.get("description", "").strip()
+        ):
+            md = fields_param["description"]
+            adf_doc = wrap_markdown(md)
+            fields_param["description"] = adf_doc
 
         # 1️⃣ Vybereme metodu (update_issue › edit_issue › Issue.update)
         if hasattr(self._jira, "update_issue"):
