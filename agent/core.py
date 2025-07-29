@@ -32,6 +32,7 @@ import openai
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.memory import ConversationBufferWindowMemory
 from langchain_community.chat_message_histories import FileChatMessageHistory
+from utils.rotating_history import RotatingFileChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain.schema import Document
@@ -209,11 +210,11 @@ _persistent_history_file = Path(
 )
 _persistent_history_file.parent.mkdir(parents=True, exist_ok=True)
 
-_short_term_memory.chat_memory = FileChatMessageHistory(
+_short_term_memory.chat_memory = RotatingFileChatMessageHistory(
     file_path=str(_persistent_history_file)
 )
 
-_short_term_memory.chat_memory = FileChatMessageHistory(
+_short_term_memory.chat_memory = RotatingFileChatMessageHistory(
     file_path=_persistent_history_file
 )
 
