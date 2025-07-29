@@ -219,7 +219,11 @@ _short_term_memory.chat_memory = FileChatMessageHistory(
 
 QUERY_TIME_THRESHOLD = int(os.getenv("QUERY_TIME_THRESHOLD", 120))
 MAX_CHAT_RECORDS = int(os.getenv("MAX_CHAT_RECORDS", 10_000))
-DUPLICATE_THRESHOLD = float(os.getenv("DUPLICATE_THRESHOLD", 0.95))
+DUPLICATE_THRESHOLD = float(os.getenv("DUPLICATE_THRESHOLD", 0.90))
+
+# Weights for duplicate detection (embedding vs. text similarity)
+EMBED_WEIGHT = 0.7
+TEXT_WEIGHT = 0.3
 
 RERANK_ALPHA = float(os.getenv("RERANK_ALPHA", 0.7))
 RERANK_BETA = float(os.getenv("RERANK_BETA", 0.25))
@@ -234,7 +238,8 @@ _ts_lock = threading.Lock()
 _bg_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bg")
 
 # Recent user embeddings for duplicate detection
-_embedding_cache: deque[list[float]] = deque(maxlen=500)
+# Stores tuples of (embedding, original text)
+_embedding_cache: deque[tuple[list[float], str]] = deque(maxlen=500)
 _cache_ready = False
 _cache_lock = threading.Lock()
 _summary_lock = asyncio.Lock()
@@ -253,27 +258,55 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
+def _shingles(text: str, n: int = 3) -> set[str]:
+    text = text.lower()
+    return {text[i : i + n] for i in range(len(text) - n + 1)} if text else set()
+
+
+def _jaccard(a: str, b: str) -> float:
+    sa = _shingles(a)
+    sb = _shingles(b)
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
+def _combined_similarity(u_emb: list[float], u_text: str, v_emb: list[float], v_text: str) -> float:
+    emb = _cosine(u_emb, v_emb)
+    txt = _jaccard(u_text, v_text)
+    return EMBED_WEIGHT * emb + TEXT_WEIGHT * txt
+
+
+def _rebuild_embedding_cache() -> None:
+    """Recreate duplicate‑detection cache from the vector store."""
+    with _cache_lock:
+        _embedding_cache.clear()
+        try:
+            data = _chat_store.get(include=["embeddings", "metadatas", "documents"], limit=2000)
+            pairs = [
+                (e, d, m.get("ts"))
+                for e, d, m in zip(
+                    data.get("embeddings", []),
+                    data.get("documents", []),
+                    data.get("metadatas", []),
+                )
+                if (m or {}).get("role") == "user"
+            ]
+            pairs.sort(key=lambda p: p[2] or "")
+            for emb, doc, _ in pairs[-500:]:
+                _embedding_cache.append((emb, doc))
+        except Exception:
+            pass
+        global _cache_ready
+        _cache_ready = True
+
+
 def _ensure_cache() -> None:
     """Populate embedding cache with the latest user embeddings."""
     global _cache_ready
     if _cache_ready:
         return
-    with _cache_lock:
-        if _cache_ready:
-            return
-        try:
-            data = _chat_store.get(include=["embeddings", "metadatas"], limit=2000)
-            pairs = [
-                (e, m.get("ts"))
-                for e, m in zip(data.get("embeddings", []), data.get("metadatas", []))
-                if (m or {}).get("role") == "user"
-            ]
-            pairs.sort(key=lambda p: p[1] or "")
-            for emb, _ in pairs[-500:]:
-                _embedding_cache.append(emb)
-        except Exception:
-            pass
-        _cache_ready = True
+    _rebuild_embedding_cache()
 
 
 import threading
@@ -694,13 +727,15 @@ async def learn(state: AgentState) -> AgentState:
         _ensure_cache()
         new_embs = await _embeddings.aembed_documents([d.page_content for d in docs])
         user_emb = new_embs[0]
+        user_text = docs[0].page_content
         with _cache_lock:
             if any(
-                _cosine(user_emb, ex) > DUPLICATE_THRESHOLD for ex in _embedding_cache
+                _combined_similarity(user_emb, user_text, ex[0], ex[1]) > DUPLICATE_THRESHOLD
+                for ex in _embedding_cache
             ):
                 docs = [docs[1]]  # store assistant answer only
             else:
-                _embedding_cache.append(user_emb)
+                _embedding_cache.append((user_emb, user_text))
     except Exception:
         pass
 
@@ -740,6 +775,7 @@ async def learn(state: AgentState) -> AgentState:
                 print(
                     f"[learn/summarise] kept={after}, removed={before - after}, latency={latency:.2f}s"
                 )
+                _rebuild_embedding_cache()
 
         # Re-evaluate collection size after potential summarisation
         total = _chat_store.get_total_records()
