@@ -235,6 +235,7 @@ _bg_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bg")
 _embedding_cache: deque[list[float]] = deque(maxlen=500)
 _cache_ready = False
 _cache_lock = threading.Lock()
+_summary_lock = asyncio.Lock()
 
 
 def _update_last_user_ts() -> None:
@@ -595,29 +596,37 @@ async def learn(state: AgentState) -> AgentState:
     try:
         total = _chat_store.get_total_records()
         if total % 500 == 0:
-            res = _chat_store.get(include=["documents", "metadatas"], limit=None)
-            records = list(zip(res["ids"], res["documents"], res["metadatas"]))
-            records.sort(key=lambda r: r[2].get("ts", ""))
-            last = records[-500:]
-            text = "\n".join(doc for _, doc, _ in last)
-            summary = await _llm.ainvoke(
-                f"Summarise following 500 lines of chat history:\n{text}"
-            )
-            _chat_store.add_documents(
-                [
-                    Document(
-                        page_content=summary,
-                        metadata={"role": "summary", "ts": ts, "source": "chat"},
-                    )
-                ]
-            )
-            ids_to_del = [rid for rid, _, _ in last]
-            if ids_to_del:
-                _chat_store.delete(ids_to_del)
-                with _cache_lock:
-                    for _ in range(len(ids_to_del)):
-                        if _embedding_cache:
-                            _embedding_cache.popleft()
+            async with _summary_lock:
+                before = _chat_store.get_total_records()
+                t0 = time.perf_counter()
+                res = _chat_store.get(include=["documents", "metadatas"], limit=None)
+                records = list(zip(res["ids"], res["documents"], res["metadatas"]))
+                records.sort(key=lambda r: r[2].get("ts", ""))
+                first = records[:500]
+                text = "\n".join(doc for _, doc, _ in first)
+                summary = await _llm.ainvoke(
+                    f"Summarise following 500 lines of chat history:\n{text}"
+                )
+                _chat_store.add_documents(
+                    [
+                        Document(
+                            page_content=summary,
+                            metadata={"role": "summary", "ts": ts, "source": "chat"},
+                        )
+                    ]
+                )
+                ids_to_del = [rid for rid, _, _ in first]
+                if ids_to_del:
+                    _chat_store.delete(ids_to_del)
+                    with _cache_lock:
+                        for _ in range(len(ids_to_del)):
+                            if _embedding_cache:
+                                _embedding_cache.popleft()
+                after = _chat_store.get_total_records()
+                latency = time.perf_counter() - t0
+                print(
+                    f"[learn/summarise] kept={after}, removed={before - after}, latency={latency:.2f}s"
+                )
 
         # Re-evaluate collection size after potential summarisation
         total = _chat_store.get_total_records()
