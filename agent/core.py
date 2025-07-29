@@ -60,6 +60,7 @@ import json, asyncio
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
+from utils.shutdown import register_task
 
 # ---------------------------------------------------------------------------
 # Utility: timing decorator for measuring production phase durations
@@ -671,7 +672,8 @@ async def act(state: AgentState) -> AgentState:
         err = f"⚠️ Nástroj selhal: {e}"
         state["answer"] = err
         state["intermediate_steps"] = [err]
-    asyncio.create_task(learn(state.copy()))
+    t = asyncio.create_task(learn(state.copy()))
+    register_task(t)
     return state
 
 
