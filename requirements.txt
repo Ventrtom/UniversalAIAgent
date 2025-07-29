@@ -19,4 +19,3 @@ langgraph>=0.0.24
 importlib
 logging
 apscheduler
-markdown2adf
