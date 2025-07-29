@@ -19,7 +19,8 @@ import inspect
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import TypedDict
+from typing import TypedDict, Any
+from dataclasses import dataclass
 import threading
 import math
 from concurrent.futures import ThreadPoolExecutor
@@ -31,6 +32,7 @@ import openai
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.memory import ConversationBufferWindowMemory
 from langchain_community.chat_message_histories import FileChatMessageHistory
+from utils.rotating_history import RotatingFileChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain.schema import Document
@@ -59,6 +61,7 @@ import json, asyncio
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
+from utils.shutdown import register_task
 
 # ---------------------------------------------------------------------------
 # Utility: timing decorator for measuring production phase durations
@@ -191,6 +194,7 @@ _vectorstore = _kb_store
 # Multi‑tier memory configuration
 # ---------------------------------------------------------------------------
 SHORT_WINDOW = int(os.getenv("AGENT_SHORT_WINDOW", 10))
+MAX_TOOL_ITERATIONS = int(os.getenv("MAX_TOOL_ITERATIONS", 6))
 
 # 1) Short‑term window (keeps last N turns in RAM)
 _short_term_memory = ConversationBufferWindowMemory(
@@ -207,17 +211,18 @@ _persistent_history_file = Path(
 )
 _persistent_history_file.parent.mkdir(parents=True, exist_ok=True)
 
-_short_term_memory.chat_memory = FileChatMessageHistory(
-    file_path=str(_persistent_history_file)
-)
 
-_short_term_memory.chat_memory = FileChatMessageHistory(
+_short_term_memory.chat_memory = RotatingFileChatMessageHistory(
     file_path=_persistent_history_file
 )
 
 QUERY_TIME_THRESHOLD = int(os.getenv("QUERY_TIME_THRESHOLD", 120))
 MAX_CHAT_RECORDS = int(os.getenv("MAX_CHAT_RECORDS", 10_000))
-DUPLICATE_THRESHOLD = float(os.getenv("DUPLICATE_THRESHOLD", 0.95))
+DUPLICATE_THRESHOLD = float(os.getenv("DUPLICATE_THRESHOLD", 0.90))
+
+# Weights for duplicate detection (embedding vs. text similarity)
+EMBED_WEIGHT = 0.7
+TEXT_WEIGHT = 0.3
 
 RERANK_ALPHA = float(os.getenv("RERANK_ALPHA", 0.7))
 RERANK_BETA = float(os.getenv("RERANK_BETA", 0.25))
@@ -232,9 +237,11 @@ _ts_lock = threading.Lock()
 _bg_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bg")
 
 # Recent user embeddings for duplicate detection
-_embedding_cache: deque[list[float]] = deque(maxlen=500)
+# Stores tuples of (embedding, original text)
+_embedding_cache: deque[tuple[list[float], str]] = deque(maxlen=500)
 _cache_ready = False
 _cache_lock = threading.Lock()
+_summary_lock = asyncio.Lock()
 
 
 def _update_last_user_ts() -> None:
@@ -250,27 +257,55 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
+def _shingles(text: str, n: int = 3) -> set[str]:
+    text = text.lower()
+    return {text[i : i + n] for i in range(len(text) - n + 1)} if text else set()
+
+
+def _jaccard(a: str, b: str) -> float:
+    sa = _shingles(a)
+    sb = _shingles(b)
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
+def _combined_similarity(u_emb: list[float], u_text: str, v_emb: list[float], v_text: str) -> float:
+    emb = _cosine(u_emb, v_emb)
+    txt = _jaccard(u_text, v_text)
+    return EMBED_WEIGHT * emb + TEXT_WEIGHT * txt
+
+
+def _rebuild_embedding_cache() -> None:
+    """Recreate duplicate‑detection cache from the vector store."""
+    with _cache_lock:
+        _embedding_cache.clear()
+        try:
+            data = _chat_store.get(include=["embeddings", "metadatas", "documents"], limit=2000)
+            pairs = [
+                (e, d, m.get("ts"))
+                for e, d, m in zip(
+                    data.get("embeddings", []),
+                    data.get("documents", []),
+                    data.get("metadatas", []),
+                )
+                if (m or {}).get("role") == "user"
+            ]
+            pairs.sort(key=lambda p: p[2] or "")
+            for emb, doc, _ in pairs[-500:]:
+                _embedding_cache.append((emb, doc))
+        except Exception:
+            pass
+        global _cache_ready
+        _cache_ready = True
+
+
 def _ensure_cache() -> None:
     """Populate embedding cache with the latest user embeddings."""
     global _cache_ready
     if _cache_ready:
         return
-    with _cache_lock:
-        if _cache_ready:
-            return
-        try:
-            data = _chat_store.get(include=["embeddings", "metadatas"], limit=2000)
-            pairs = [
-                (e, m.get("ts"))
-                for e, m in zip(data.get("embeddings", []), data.get("metadatas", []))
-                if (m or {}).get("role") == "user"
-            ]
-            pairs.sort(key=lambda p: p[1] or "")
-            for emb, _ in pairs[-500:]:
-                _embedding_cache.append(emb)
-        except Exception:
-            pass
-        _cache_ready = True
+    _rebuild_embedding_cache()
 
 
 import threading
@@ -280,38 +315,70 @@ threading.Thread(target=_ensure_cache, daemon=True).start()
 # ---------------------------------------------------------------------------
 # Periodic snapshotting of chat memory
 # ---------------------------------------------------------------------------
-SNAPSHOT_PATH = os.getenv("CHAT_SNAPSHOT_FILE", "data/chat_snapshot.parquet")
+SNAPSHOT_PATH = os.getenv("CHAT_SNAPSHOT_FILE", "data/chat_snapshot.jsonl")
 SNAPSHOT_INTERVAL = int(os.getenv("CHAT_SNAPSHOT_INTERVAL", 600))
 
 
-def _snapshot_chat() -> None:
-    """Persist chat vectors and metadata to a Parquet file."""
+def _snapshot_chat(path: str = SNAPSHOT_PATH, mask_pii: bool = False) -> None:
+    """Append new chat records to a JSONL snapshot."""
     try:
+        last_ts = None
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    pass
+                if line:
+                    try:
+                        last_ts = json.loads(line).get("ts")
+                    except Exception:
+                        last_ts = None
+
         data = _chat_store.get(include=["documents", "metadatas"], limit=None)
-        rows = [
-            {
-                "id": i,
-                "document": doc,
-                **(meta or {}),
-            }
-            for i, doc, meta in zip(
-                data.get("ids", []),
-                data.get("documents", []),
-                data.get("metadatas", []),
-            )
-        ]
+        rows = []
+        for i, doc, meta in zip(
+            data.get("ids", []),
+            data.get("documents", []),
+            data.get("metadatas", []),
+        ):
+            ts = (meta or {}).get("ts")
+            if last_ts and ts and ts <= last_ts:
+                continue
+            if mask_pii:
+                from utils.redaction import redact_pii
+
+                doc = redact_pii(doc)
+            rows.append({"id": i, "document": doc, **(meta or {})})
+
         if rows:
-            os.makedirs(os.path.dirname(SNAPSHOT_PATH), exist_ok=True)
-            pd.DataFrame(rows).to_parquet(SNAPSHOT_PATH, index=False)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                for row in rows:
+                    json.dump(row, f, ensure_ascii=False)
+                    f.write("\n")
     except Exception:
         pass
 
 
-_scheduler = BackgroundScheduler(daemon=True)
-_scheduler.add_job(_snapshot_chat, "interval", seconds=SNAPSHOT_INTERVAL)
-_scheduler.start()
-atexit.register(lambda: _scheduler.shutdown(wait=False))
-atexit.register(_snapshot_chat)
+_scheduler: BackgroundScheduler | None = None
+
+
+def start_background_jobs(config: dict | None = None) -> BackgroundScheduler:
+    """Start background tasks like periodic snapshotting."""
+    global _scheduler
+    if _scheduler is not None:
+        return _scheduler
+
+    cfg = config or {}
+    interval = int(cfg.get("snapshot_interval", SNAPSHOT_INTERVAL))
+    path = cfg.get("snapshot_path", SNAPSHOT_PATH)
+    mask = bool(cfg.get("mask_pii", False))
+
+    _scheduler = BackgroundScheduler(daemon=True)
+    _scheduler.add_job(_snapshot_chat, "interval", seconds=interval, args=(path, mask))
+    _scheduler.start()
+    atexit.register(lambda: _scheduler.shutdown(wait=False))
+    atexit.register(lambda: _snapshot_chat(path, mask))
+    return _scheduler
 
 
 def _ev_attr(ev, attr: str, default=None):
@@ -389,7 +456,26 @@ prompt = ChatPromptTemplate.from_messages(
     ]
 ).partial(format_instructions=parser.get_format_instructions())
 
+
 _llm = ChatOpenAI(model="gpt-4o", temperature=0.3)
+
+
+@dataclass
+class ToolResult:
+    """Uniform wrapper for tool outputs."""
+
+    content: Any
+    content_type: str  # "text" or "json"
+    tool_name: str
+
+    def __str__(self) -> str:  # noqa: D401 – simple wrapper
+        """Return a string representation for the LLM context."""
+        if self.content_type == "json":
+            try:
+                return json.dumps(self.content, ensure_ascii=False)
+            except Exception:
+                return str(self.content)
+        return str(self.content)
 
 def _coerce_tool_output_to_str(x):
     """
@@ -405,11 +491,19 @@ def _coerce_tool_output_to_str(x):
     except Exception:
         return str(x)
 
+def _wrap_output(tool_name: str, out: Any) -> ToolResult:
+    """Convert raw tool output into :class:`ToolResult`."""
+    if isinstance(out, (dict, list)):
+        return ToolResult(content=out, content_type="json", tool_name=tool_name)
+    return ToolResult(
+        content=_coerce_tool_output_to_str(out),
+        content_type="text",
+        tool_name=tool_name,
+    )
+
+
 def _safe(t):
-    """
-    Obalí tool tak, aby vždy vracel string (viz _coerce_tool_output_to_str),
-    a zapne jednotné zachytávání chyb nástroje.
-    """
+    """Wrap tool to return :class:`ToolResult` and enforce error handling."""
     t.handle_tool_error = True
 
     func = getattr(t, "func", None)
@@ -419,17 +513,17 @@ def _safe(t):
         if inspect.iscoroutinefunction(func):
             async def _wrapped_async(*a, **k):
                 out = await func(*a, **k)
-                return _coerce_tool_output_to_str(out)
+                return _wrap_output(t.name, out)
             t.coroutine = _wrapped_async
         else:
             def _wrapped_sync(*a, **k):
                 out = func(*a, **k)
-                return _coerce_tool_output_to_str(out)
+                return _wrap_output(t.name, out)
             t.func = _wrapped_sync
     elif coro is not None:
         async def _wrapped_coro(*a, **k):
             out = await coro(*a, **k)
-            return _coerce_tool_output_to_str(out)
+            return _wrap_output(t.name, out)
         t.coroutine = _wrapped_coro
     return t
 
@@ -463,7 +557,7 @@ _agent_executor = AgentExecutor(
     memory=_short_term_memory,
     verbose=False,
     return_intermediate_steps=True,
-    max_iterations=3,
+    max_iterations=MAX_TOOL_ITERATIONS,
 )
 
 
@@ -480,11 +574,62 @@ class AgentState(TypedDict):
 
 
 # --- Node 1: Retrieve relevant long‑term memory --------------------------------
-def _is_information_query(query: str) -> bool:
-    """Heuristic check whether the query is a standalone information request."""
+_INFO_KEYWORDS = (
+    "co",
+    "jak",
+    "proč",
+    "kde",
+    "kdy",
+    "kdo",
+    "který",
+    "jaký",
+    "jaká",
+    "jaké",
+    "kolik",
+    "what",
+    "why",
+    "how",
+    "where",
+    "when",
+    "who",
+)
+
+_INFO_TEMPLATES = [
+    "What is the capital of France?",
+    "How do I reset my password?",
+    "Why is the sky blue?",
+    "Where can I find the manual?",
+    "When does the event start?",
+    "Who wrote this book?",
+    "Co je to láska?",
+    "Jak funguje wifi?",
+    "Proč se to děje?",
+    "Kde najdu manuál?",
+    "Kdy to začne?",
+    "Kdo to napsal?",
+]
+
+try:
+    _INFO_EMBEDDINGS = [_embeddings.embed_query(t) for t in _INFO_TEMPLATES]
+except Exception:
+    _INFO_EMBEDDINGS = []
+
+
+def _is_information_query(query: str) -> tuple[bool, str]:
+    """Return (True, reason) if query looks like an information request."""
     q = query.lower().strip()
-    info_words = ("what", "why", "how", "where", "when", "who")
-    return any(q.startswith(w) for w in info_words) or "?" in q
+    if any(q.startswith(w) for w in _INFO_KEYWORDS) or "?" in q:
+        return True, "keywords"
+
+    if _INFO_EMBEDDINGS:
+        try:
+            emb = _embeddings.embed_query(q)
+            if max(_cosine(emb, t) for t in _INFO_EMBEDDINGS) > 0.8:
+                return True, "embedding"
+        except Exception:
+            pass
+
+    return False, ""
 
 
 def recall(state: AgentState) -> AgentState:
@@ -493,7 +638,8 @@ def recall(state: AgentState) -> AgentState:
     with _ts_lock:
         since_last = datetime.utcnow().timestamp() - _last_user_ts
 
-    use_kb = _is_information_query(query) or since_last > QUERY_TIME_THRESHOLD
+    is_info, _ = _is_information_query(query)
+    use_kb = is_info or since_last > QUERY_TIME_THRESHOLD
     store = _kb_store if use_kb else _chat_store
 
     words = len(query.split())
@@ -557,7 +703,8 @@ async def act(state: AgentState) -> AgentState:
         err = f"⚠️ Nástroj selhal: {e}"
         state["answer"] = err
         state["intermediate_steps"] = [err]
-    asyncio.create_task(learn(state.copy()))
+    t = asyncio.create_task(learn(state.copy()))
+    register_task(t)
     return state
 
 
@@ -580,13 +727,15 @@ async def learn(state: AgentState) -> AgentState:
         _ensure_cache()
         new_embs = await _embeddings.aembed_documents([d.page_content for d in docs])
         user_emb = new_embs[0]
+        user_text = docs[0].page_content
         with _cache_lock:
             if any(
-                _cosine(user_emb, ex) > DUPLICATE_THRESHOLD for ex in _embedding_cache
+                _combined_similarity(user_emb, user_text, ex[0], ex[1]) > DUPLICATE_THRESHOLD
+                for ex in _embedding_cache
             ):
                 docs = [docs[1]]  # store assistant answer only
             else:
-                _embedding_cache.append(user_emb)
+                _embedding_cache.append((user_emb, user_text))
     except Exception:
         pass
 
@@ -595,29 +744,38 @@ async def learn(state: AgentState) -> AgentState:
     try:
         total = _chat_store.get_total_records()
         if total % 500 == 0:
-            res = _chat_store.get(include=["documents", "metadatas"], limit=None)
-            records = list(zip(res["ids"], res["documents"], res["metadatas"]))
-            records.sort(key=lambda r: r[2].get("ts", ""))
-            last = records[-500:]
-            text = "\n".join(doc for _, doc, _ in last)
-            summary = await _llm.ainvoke(
-                f"Summarise following 500 lines of chat history:\n{text}"
-            )
-            _chat_store.add_documents(
-                [
-                    Document(
-                        page_content=summary,
-                        metadata={"role": "summary", "ts": ts, "source": "chat"},
-                    )
-                ]
-            )
-            ids_to_del = [rid for rid, _, _ in last]
-            if ids_to_del:
-                _chat_store.delete(ids_to_del)
-                with _cache_lock:
-                    for _ in range(len(ids_to_del)):
-                        if _embedding_cache:
-                            _embedding_cache.popleft()
+            async with _summary_lock:
+                before = _chat_store.get_total_records()
+                t0 = time.perf_counter()
+                res = _chat_store.get(include=["documents", "metadatas"], limit=None)
+                records = list(zip(res["ids"], res["documents"], res["metadatas"]))
+                records.sort(key=lambda r: r[2].get("ts", ""))
+                first = records[:500]
+                text = "\n".join(doc for _, doc, _ in first)
+                summary = await _llm.ainvoke(
+                    f"Summarise following 500 lines of chat history:\n{text}"
+                )
+                _chat_store.add_documents(
+                    [
+                        Document(
+                            page_content=summary,
+                            metadata={"role": "summary", "ts": ts, "source": "chat"},
+                        )
+                    ]
+                )
+                ids_to_del = [rid for rid, _, _ in first]
+                if ids_to_del:
+                    _chat_store.delete(ids_to_del)
+                    with _cache_lock:
+                        for _ in range(len(ids_to_del)):
+                            if _embedding_cache:
+                                _embedding_cache.popleft()
+                after = _chat_store.get_total_records()
+                latency = time.perf_counter() - t0
+                print(
+                    f"[learn/summarise] kept={after}, removed={before - after}, latency={latency:.2f}s"
+                )
+                _rebuild_embedding_cache()
 
         # Re-evaluate collection size after potential summarisation
         total = _chat_store.get_total_records()
@@ -778,4 +936,10 @@ async def handle_query_stream(query: str):
 # Convenience alias pro případné externí diagnostiky
 agent_workflow = workflow
 
-__all__ = ["handle_query", "handle_query_stream", "agent_workflow", "ResearchResponse"]
+__all__ = [
+    "handle_query",
+    "handle_query_stream",
+    "agent_workflow",
+    "ResearchResponse",
+    "start_background_jobs",
+]

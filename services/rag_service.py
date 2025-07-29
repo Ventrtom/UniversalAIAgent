@@ -14,6 +14,7 @@ from langchain_community.document_loaders import DirectoryLoader, ConfluenceLoad
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain.schema import Document
+from .self_inspection import _count_tokens
 
 
 # ───────────────────────── Helper: Robust TXT Saver ───────────────────────────
@@ -57,15 +58,56 @@ def build_vectorstore(docs_path: str = "./data", persist_directory: str = CHROMA
 
 # ───────────────────────── RAG Retriever over Chroma ─────────────────────────-
 _embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-_retriever = Chroma(persist_directory=CHROMA_DIR, embedding_function=_embeddings).as_retriever(search_kwargs={"k": 4})
+_vectorstore = Chroma(persist_directory=CHROMA_DIR, embedding_function=_embeddings)
 
 
-def rag_lookup(query: str) -> str:
-    """Return up to 4 relevant documents from the vector store."""
-    docs: List[Document] = _retriever.invoke(query)
+def rag_lookup(query: str, max_tokens: int = 1200) -> str:
+    """Return adaptively selected relevant documents from the vector store."""
+    k = max(2, min(8, 2 + len(query) // 50))
+    docs: List[Document] = _vectorstore.max_marginal_relevance_search(
+        query,
+        k=k,
+        fetch_k=max(20, k * 4),
+        lambda_mult=0.5,
+    )
     if not docs:
         return "Žádné interní dokumenty se k dotazu nenašly."
-    return "\n\n".join(d.page_content for d in docs)
+
+    # Deduplicate by known document identifiers
+    seen: set[str] = set()
+    unique: List[Document] = []
+    for d in docs:
+        meta = d.metadata or {}
+        doc_id = meta.get("document_id") or meta.get("page_id") or meta.get(
+            "file_id"
+        ) or meta.get("id")
+        if doc_id and doc_id in seen:
+            continue
+        if doc_id:
+            seen.add(doc_id)
+        unique.append(d)
+
+    remaining = max_tokens
+    docs_left = len(unique)
+    parts: list[str] = []
+    for d in unique:
+        if remaining <= 0:
+            break
+        tokens_share = max(1, remaining // docs_left)
+        content_tokens = _count_tokens(d.page_content)
+        if content_tokens <= tokens_share:
+            snippet = d.page_content
+        else:
+            # approximate trimming by character ratio
+            keep_ratio = tokens_share / content_tokens
+            char_limit = max(1, int(len(d.page_content) * keep_ratio))
+            snippet = d.page_content[:char_limit]
+        parts.append(snippet)
+        used = _count_tokens(snippet)
+        remaining -= used
+        docs_left -= 1
+
+    return "\n\n".join(parts)
 
 
 # ───────────────────────── Confluence loader ----------------------------------
