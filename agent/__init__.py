@@ -8,10 +8,12 @@ handle_query = core.handle_query
 handle_query_stream = core.handle_query_stream
 agent_workflow = core.agent_workflow
 ResearchResponse = core.ResearchResponse
+ToolResult = core.ToolResult
  
 __all__ = [
      "handle_query",
      "handle_query_stream",
-     "agent_workflow",
-     "ResearchResponse",
+    "agent_workflow",
+    "ResearchResponse",
+    "ToolResult",
     ]
