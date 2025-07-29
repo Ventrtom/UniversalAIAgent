@@ -19,7 +19,8 @@ import inspect
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import TypedDict
+from typing import TypedDict, Any
+from dataclasses import dataclass
 import threading
 import math
 from concurrent.futures import ThreadPoolExecutor
@@ -191,6 +192,7 @@ _vectorstore = _kb_store
 # Multi‑tier memory configuration
 # ---------------------------------------------------------------------------
 SHORT_WINDOW = int(os.getenv("AGENT_SHORT_WINDOW", 10))
+MAX_TOOL_ITERATIONS = int(os.getenv("MAX_TOOL_ITERATIONS", 6))
 
 # 1) Short‑term window (keeps last N turns in RAM)
 _short_term_memory = ConversationBufferWindowMemory(
@@ -390,7 +392,26 @@ prompt = ChatPromptTemplate.from_messages(
     ]
 ).partial(format_instructions=parser.get_format_instructions())
 
+
 _llm = ChatOpenAI(model="gpt-4o", temperature=0.3)
+
+
+@dataclass
+class ToolResult:
+    """Uniform wrapper for tool outputs."""
+
+    content: Any
+    content_type: str  # "text" or "json"
+    tool_name: str
+
+    def __str__(self) -> str:  # noqa: D401 – simple wrapper
+        """Return a string representation for the LLM context."""
+        if self.content_type == "json":
+            try:
+                return json.dumps(self.content, ensure_ascii=False)
+            except Exception:
+                return str(self.content)
+        return str(self.content)
 
 def _coerce_tool_output_to_str(x):
     """
@@ -406,11 +427,19 @@ def _coerce_tool_output_to_str(x):
     except Exception:
         return str(x)
 
+def _wrap_output(tool_name: str, out: Any) -> ToolResult:
+    """Convert raw tool output into :class:`ToolResult`."""
+    if isinstance(out, (dict, list)):
+        return ToolResult(content=out, content_type="json", tool_name=tool_name)
+    return ToolResult(
+        content=_coerce_tool_output_to_str(out),
+        content_type="text",
+        tool_name=tool_name,
+    )
+
+
 def _safe(t):
-    """
-    Obalí tool tak, aby vždy vracel string (viz _coerce_tool_output_to_str),
-    a zapne jednotné zachytávání chyb nástroje.
-    """
+    """Wrap tool to return :class:`ToolResult` and enforce error handling."""
     t.handle_tool_error = True
 
     func = getattr(t, "func", None)
@@ -420,17 +449,17 @@ def _safe(t):
         if inspect.iscoroutinefunction(func):
             async def _wrapped_async(*a, **k):
                 out = await func(*a, **k)
-                return _coerce_tool_output_to_str(out)
+                return _wrap_output(t.name, out)
             t.coroutine = _wrapped_async
         else:
             def _wrapped_sync(*a, **k):
                 out = func(*a, **k)
-                return _coerce_tool_output_to_str(out)
+                return _wrap_output(t.name, out)
             t.func = _wrapped_sync
     elif coro is not None:
         async def _wrapped_coro(*a, **k):
             out = await coro(*a, **k)
-            return _coerce_tool_output_to_str(out)
+            return _wrap_output(t.name, out)
         t.coroutine = _wrapped_coro
     return t
 
@@ -464,7 +493,7 @@ _agent_executor = AgentExecutor(
     memory=_short_term_memory,
     verbose=False,
     return_intermediate_steps=True,
-    max_iterations=3,
+    max_iterations=MAX_TOOL_ITERATIONS,
 )
 
 

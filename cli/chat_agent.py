@@ -10,7 +10,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import gradio as gr
 
-from agent import handle_query_stream, ResearchResponse
+from agent import handle_query_stream, ResearchResponse, ToolResult
 from .config import MAX_HISTORY_LENGTH
 
 logger = logging.getLogger(__name__)
@@ -70,8 +70,12 @@ def format_intermediate_steps(steps: List[Any]) -> str:
                 else:
                     input_str = str(tool_input)
                 formatted_steps.append(f"**{i}.** 🔧 **{tool_name}**({input_str})")
-                if result and isinstance(result, str) and len(result) < 200:
-                    formatted_steps.append(f"   📋 Result: {result}")
+                if isinstance(result, ToolResult):
+                    res_str = str(result)
+                else:
+                    res_str = result if isinstance(result, str) else str(result)
+                if res_str and len(res_str) < 200:
+                    formatted_steps.append(f"   📋 Result: {res_str}")
             else:
                 formatted_steps.append(f"**{i}.** {str(step)}")
         else:
