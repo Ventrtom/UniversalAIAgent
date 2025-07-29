@@ -49,7 +49,7 @@ def file_path(fname: Optional[str]) -> Optional[str]:
 def refresh_choices() -> gr.Dropdown:
     """Update dropdown choices with current file list."""
     choices = list_files()
-    return gr.Dropdown.update(choices=choices, value=choices[0] if choices else None)
+    return gr.update(choices=choices, value=choices[0] if choices else None)
 
 
 def file_selected(fname: Optional[str]) -> Tuple[str, gr.File, str]:
@@ -64,9 +64,9 @@ def file_selected(fname: Optional[str]) -> Tuple[str, gr.File, str]:
 def trigger_download(fname: Optional[str]) -> gr.File:
     """Return file component to download the selected file."""
     if not fname:
-        return gr.File.update(visible=False)
+        return gr.update(visible=False)
     path = file_path(fname)
-    return gr.File.update(value=path, visible=bool(path))
+    return gr.update(value=path, visible=bool(path))
 
 
 def save_file(
@@ -74,7 +74,7 @@ def save_file(
 ) -> Tuple[gr.Dropdown, gr.File, str]:
     """Persist edited content and optionally rename the file."""
     if not original_name:
-        return refresh_choices(), gr.File.update(visible=False), ""
+        return refresh_choices(), gr.update(visible=False), ""
     old_path = FILES_DIR / original_name
     target_name = new_name.strip() or original_name
     if not os.path.splitext(target_name)[1]:
@@ -91,7 +91,7 @@ def save_file(
     except Exception as exc:
         logger.error("Error writing file: %s", exc)
     dropdown = refresh_choices()
-    return dropdown, gr.File.update(value=str(new_path), visible=True), new_path.name
+    return dropdown, gr.update(value=str(new_path), visible=True), new_path.name
 
 
 def delete_file(fname: str) -> gr.Dropdown:
