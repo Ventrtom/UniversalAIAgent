@@ -283,38 +283,70 @@ threading.Thread(target=_ensure_cache, daemon=True).start()
 # ---------------------------------------------------------------------------
 # Periodic snapshotting of chat memory
 # ---------------------------------------------------------------------------
-SNAPSHOT_PATH = os.getenv("CHAT_SNAPSHOT_FILE", "data/chat_snapshot.parquet")
+SNAPSHOT_PATH = os.getenv("CHAT_SNAPSHOT_FILE", "data/chat_snapshot.jsonl")
 SNAPSHOT_INTERVAL = int(os.getenv("CHAT_SNAPSHOT_INTERVAL", 600))
 
 
-def _snapshot_chat() -> None:
-    """Persist chat vectors and metadata to a Parquet file."""
+def _snapshot_chat(path: str = SNAPSHOT_PATH, mask_pii: bool = False) -> None:
+    """Append new chat records to a JSONL snapshot."""
     try:
+        last_ts = None
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    pass
+                if line:
+                    try:
+                        last_ts = json.loads(line).get("ts")
+                    except Exception:
+                        last_ts = None
+
         data = _chat_store.get(include=["documents", "metadatas"], limit=None)
-        rows = [
-            {
-                "id": i,
-                "document": doc,
-                **(meta or {}),
-            }
-            for i, doc, meta in zip(
-                data.get("ids", []),
-                data.get("documents", []),
-                data.get("metadatas", []),
-            )
-        ]
+        rows = []
+        for i, doc, meta in zip(
+            data.get("ids", []),
+            data.get("documents", []),
+            data.get("metadatas", []),
+        ):
+            ts = (meta or {}).get("ts")
+            if last_ts and ts and ts <= last_ts:
+                continue
+            if mask_pii:
+                from utils.redaction import redact_pii
+
+                doc = redact_pii(doc)
+            rows.append({"id": i, "document": doc, **(meta or {})})
+
         if rows:
-            os.makedirs(os.path.dirname(SNAPSHOT_PATH), exist_ok=True)
-            pd.DataFrame(rows).to_parquet(SNAPSHOT_PATH, index=False)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                for row in rows:
+                    json.dump(row, f, ensure_ascii=False)
+                    f.write("\n")
     except Exception:
         pass
 
 
-_scheduler = BackgroundScheduler(daemon=True)
-_scheduler.add_job(_snapshot_chat, "interval", seconds=SNAPSHOT_INTERVAL)
-_scheduler.start()
-atexit.register(lambda: _scheduler.shutdown(wait=False))
-atexit.register(_snapshot_chat)
+_scheduler: BackgroundScheduler | None = None
+
+
+def start_background_jobs(config: dict | None = None) -> BackgroundScheduler:
+    """Start background tasks like periodic snapshotting."""
+    global _scheduler
+    if _scheduler is not None:
+        return _scheduler
+
+    cfg = config or {}
+    interval = int(cfg.get("snapshot_interval", SNAPSHOT_INTERVAL))
+    path = cfg.get("snapshot_path", SNAPSHOT_PATH)
+    mask = bool(cfg.get("mask_pii", False))
+
+    _scheduler = BackgroundScheduler(daemon=True)
+    _scheduler.add_job(_snapshot_chat, "interval", seconds=interval, args=(path, mask))
+    _scheduler.start()
+    atexit.register(lambda: _scheduler.shutdown(wait=False))
+    atexit.register(lambda: _snapshot_chat(path, mask))
+    return _scheduler
 
 
 def _ev_attr(ev, attr: str, default=None):
@@ -868,4 +900,10 @@ async def handle_query_stream(query: str):
 # Convenience alias pro případné externí diagnostiky
 agent_workflow = workflow
 
-__all__ = ["handle_query", "handle_query_stream", "agent_workflow", "ResearchResponse"]
+__all__ = [
+    "handle_query",
+    "handle_query_stream",
+    "agent_workflow",
+    "ResearchResponse",
+    "start_background_jobs",
+]
