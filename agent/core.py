@@ -210,9 +210,6 @@ _persistent_history_file = Path(
 )
 _persistent_history_file.parent.mkdir(parents=True, exist_ok=True)
 
-_short_term_memory.chat_memory = RotatingFileChatMessageHistory(
-    file_path=str(_persistent_history_file)
-)
 
 _short_term_memory.chat_memory = RotatingFileChatMessageHistory(
     file_path=_persistent_history_file
