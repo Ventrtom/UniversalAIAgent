@@ -481,11 +481,62 @@ class AgentState(TypedDict):
 
 
 # --- Node 1: Retrieve relevant long‑term memory --------------------------------
-def _is_information_query(query: str) -> bool:
-    """Heuristic check whether the query is a standalone information request."""
+_INFO_KEYWORDS = (
+    "co",
+    "jak",
+    "proč",
+    "kde",
+    "kdy",
+    "kdo",
+    "který",
+    "jaký",
+    "jaká",
+    "jaké",
+    "kolik",
+    "what",
+    "why",
+    "how",
+    "where",
+    "when",
+    "who",
+)
+
+_INFO_TEMPLATES = [
+    "What is the capital of France?",
+    "How do I reset my password?",
+    "Why is the sky blue?",
+    "Where can I find the manual?",
+    "When does the event start?",
+    "Who wrote this book?",
+    "Co je to láska?",
+    "Jak funguje wifi?",
+    "Proč se to děje?",
+    "Kde najdu manuál?",
+    "Kdy to začne?",
+    "Kdo to napsal?",
+]
+
+try:
+    _INFO_EMBEDDINGS = [_embeddings.embed_query(t) for t in _INFO_TEMPLATES]
+except Exception:
+    _INFO_EMBEDDINGS = []
+
+
+def _is_information_query(query: str) -> tuple[bool, str]:
+    """Return (True, reason) if query looks like an information request."""
     q = query.lower().strip()
-    info_words = ("what", "why", "how", "where", "when", "who")
-    return any(q.startswith(w) for w in info_words) or "?" in q
+    if any(q.startswith(w) for w in _INFO_KEYWORDS) or "?" in q:
+        return True, "keywords"
+
+    if _INFO_EMBEDDINGS:
+        try:
+            emb = _embeddings.embed_query(q)
+            if max(_cosine(emb, t) for t in _INFO_EMBEDDINGS) > 0.8:
+                return True, "embedding"
+        except Exception:
+            pass
+
+    return False, ""
 
 
 def recall(state: AgentState) -> AgentState:
@@ -494,7 +545,8 @@ def recall(state: AgentState) -> AgentState:
     with _ts_lock:
         since_last = datetime.utcnow().timestamp() - _last_user_ts
 
-    use_kb = _is_information_query(query) or since_last > QUERY_TIME_THRESHOLD
+    is_info, _ = _is_information_query(query)
+    use_kb = is_info or since_last > QUERY_TIME_THRESHOLD
     store = _kb_store if use_kb else _chat_store
 
     words = len(query.split())
