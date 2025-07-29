@@ -16,6 +16,7 @@ import os
 import time
 import functools
 import inspect
+import json
 from pathlib import Path
 from datetime import datetime
 from typing import TypedDict
@@ -328,6 +329,34 @@ class ResearchResponse(BaseModel):
 
 parser = PydanticOutputParser(pydantic_object=ResearchResponse)
 
+# --- helper: extract first top-level JSON object from a string ---
+def _extract_json_object(s: str) -> str | None:
+    """Return the first top-level JSON object found in s, or None."""
+    start = s.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i, ch in enumerate(s[start:], start):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+        else:
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return s[start:i+1]
+    return None
+
 # ---------------------------------------------------------------------------
 # Prompt, LLM a agent stejně jako dříve
 # ---------------------------------------------------------------------------
@@ -345,10 +374,8 @@ Guidelines:
 - Ask clarifying questions whenever the user’s request is ambiguous.
 - Make answers information‑dense—avoid filler.
 - Prefer actionable recommendations backed by evidence and quantified impact.
-- **After every answer, end with exactly:** _"Ještě něco, s čím mohu pomoci?"_
-  (keeps the dialogue open).
 
-Return your answer strictly as valid JSON conforming to the schema below.
+Return your answer strictly as valid JSON conforming to the schema below. Do not use code fences and do not prefix with a language tag.
 {format_instructions}
 """.strip()
 
@@ -364,9 +391,46 @@ prompt = ChatPromptTemplate.from_messages(
 
 _llm = ChatOpenAI(model="gpt-4o", temperature=0.3)
 
+def _coerce_tool_output_to_str(x):
+    """
+    Zajistí, že výstup nástroje bude string:
+    - str vrací beze změny
+    - dict/list serializuje do JSON
+    - cokoli jiného převede přes str(x)
+    """
+    if isinstance(x, str):
+        return x
+    try:
+        return json.dumps(x, ensure_ascii=False)
+    except Exception:
+        return str(x)
 
 def _safe(t):
+    """
+    Obalí tool tak, aby vždy vracel string (viz _coerce_tool_output_to_str),
+    a zapne jednotné zachytávání chyb nástroje.
+    """
     t.handle_tool_error = True
+
+    func = getattr(t, "func", None)
+    coro = getattr(t, "coroutine", None)
+
+    if func is not None:
+        if inspect.iscoroutinefunction(func):
+            async def _wrapped_async(*a, **k):
+                out = await func(*a, **k)
+                return _coerce_tool_output_to_str(out)
+            t.coroutine = _wrapped_async
+        else:
+            def _wrapped_sync(*a, **k):
+                out = func(*a, **k)
+                return _coerce_tool_output_to_str(out)
+            t.func = _wrapped_sync
+    elif coro is not None:
+        async def _wrapped_coro(*a, **k):
+            out = await coro(*a, **k)
+            return _coerce_tool_output_to_str(out)
+        t.coroutine = _wrapped_coro
     return t
 
 
@@ -479,8 +543,10 @@ async def act(state: AgentState) -> AgentState:
         if raw.lower().startswith("json"):
             raw = raw[4:].lstrip()
 
+        candidate = _extract_json_object(raw) or raw
+
         try:
-            parsed = ResearchResponse.parse_raw(raw)
+            parsed = ResearchResponse.parse_raw(candidate)
             state["answer"] = parsed.answer
             state["intermediate_steps"] = parsed.intermediate_steps
         except Exception as e:
