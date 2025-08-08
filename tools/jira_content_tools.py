@@ -107,7 +107,6 @@ enhance_idea_tool = StructuredTool.from_function(
         " • `max_words` (INT) – hard length limit.\n\n"
         "Avoid jargon, keep headings exactly as above, respect the word limit."
     ),
-    func=_enhance_idea_tool,
     args_schema=EnhanceIdeaInput,
     handle_tool_error=True,
 )

@@ -32,7 +32,7 @@ MAX_HISTORY_LENGTH = 50  # Limit chat history to prevent memory issues
 
 # OpenAI client for Whisper transcription
 openai_client = OpenAI()
-
+TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
 
 def list_files() -> List[str]:
     """Get sorted list of files in the shared directory."""
@@ -81,7 +81,7 @@ def transcribe_audio(path: str) -> str:
     try:
         with open(path, "rb") as f:
             out = openai_client.audio.transcriptions.create(
-                model="whisper-1", file=f
+                model=TRANSCRIBE_MODEL, file=f
             )
         return out.text.strip()
     except Exception as exc:  # pragma: no cover - network
@@ -151,72 +151,91 @@ def handle_recording(path: str) -> Tuple[gr.Audio, str, gr.Markdown]:
 
 
 def format_intermediate_steps(steps: List[Any]) -> str:
-    """Format intermediate steps for better readability."""
+    """
+    Format intermediate steps for non-technical readability.
+    Converts raw tool call dicts or strings into short,
+    human-friendly descriptions of what the agent did and found.
+    """
     if not steps:
         return ""
 
-    formatted_steps = []
+    friendly = []
     for i, step in enumerate(steps, 1):
-        if hasattr(step, "tool") and hasattr(step, "tool_input"):
-            # LangChain ToolAgentAction
-            tool_name = step.tool
-            tool_input = step.tool_input
+        # Normalize to dict if possible
+        if not isinstance(step, dict):
+            txt = str(step)
+            friendly.append(f"**{i}.** {txt[:300]}{'…' if len(txt) > 300 else ''}")
+            continue
 
-            # Format tool input nicely
-            if isinstance(tool_input, dict):
-                input_str = ", ".join(f"{k}: {v}" for k, v in tool_input.items())
+        tool = step.get("tool") or step.get("name") or "nástroj"
+        args = step.get("tool_input") or step.get("input") or {}
+        res  = step.get("result") or ""
+        err  = step.get("error")
+        duration = step.get("duration")
+
+        # Build human-readable input preview
+        try:
+            if isinstance(args, dict):
+                # prefer key summary over full JSON
+                arg_keys = ", ".join(args.keys()) if args else "bez parametrů"
+                args_preview = f"použil parametry: {arg_keys}"
+            elif isinstance(args, list):
+                args_preview = f"pracoval se seznamem {len(args)} položek"
             else:
-                input_str = str(tool_input)
+                args_preview = f"použil vstup „{str(args)[:60]}{'…' if len(str(args))>60 else ''}“"
+        except Exception:
+            args_preview = "nepodařilo se načíst vstup"
 
-            formatted_steps.append(f"**{i}.** 🔧 **{tool_name}**({input_str})")
+        # Simplify result for display
+        res_preview = ""
+        if err:
+            res_preview = f"➡️ Došlo k chybě: {err}"
+        elif isinstance(res, str) and res.strip():
+            short_res = res.strip().replace("\n", " ")
+            if len(short_res) > 100:
+                short_res = short_res[:100] + "…"
+            res_preview = f"➡️ Výsledek: {short_res}"
 
-        elif isinstance(step, tuple) and len(step) == 2:
-            # (action, result) tuple
-            action, result = step
-            if hasattr(action, "tool"):
-                tool_name = action.tool
-                tool_input = action.tool_input
-                if isinstance(tool_input, dict):
-                    input_str = ", ".join(f"{k}: {v}" for k, v in tool_input.items())
-                else:
-                    input_str = str(tool_input)
+        # Map common tools to friendlier verbs
+        verb_map = {
+            "jira_issue_detail": "Načtení detailu úkolu v JIRA",
+            "jira_ideas": "Prohledání nápadů v JIRA",
+            "searchWeb": "Hledání informací na webu",
+            "rag_retriever": "Vyhledání informací v uložené znalostní bázi",
+            "tavily_search": "Hledání externích zdrojů",
+        }
+        action = verb_map.get(tool, f"Použití nástroje {tool}")
 
-                formatted_steps.append(f"**{i}.** 🔧 **{tool_name}**({input_str})")
+        sentence = f"**{i}.** {action} – {args_preview}"
+        if duration is not None:
+            sentence += f"\n⏱️ Trvalo {duration:.2f} s"
+        if res_preview:
+            sentence += f" {res_preview}"
 
-                # Add result if it's meaningful and not too long
-                if result and isinstance(result, str) and len(result) < 200:
-                    formatted_steps.append(f"   📋 Result: {result}")
-            else:
-                formatted_steps.append(f"**{i}.** {str(step)}")
-        else:
-            # Fallback for other types
-            step_str = str(step)
-            if len(step_str) > 300:
-                step_str = step_str[:300] + "..."
-            formatted_steps.append(f"**{i}.** {step_str}")
+        friendly.append(sentence)
 
-    return "\n".join(formatted_steps)
+    return "\n".join(friendly)
 
 
 async def chat_fn(
     msg: str,
     history: Optional[List[Dict[str, Any]]],
-    reveal: bool = False,
+    reveal: bool = True,
     steps: Optional[List[str]] = None,
     live_log_markdown: gr.Markdown | None = None,
-) -> AsyncGenerator[Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[str]], None]:
+) -> AsyncGenerator[
+        Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[str], gr.Update], None
+        ]:
     """Handle chat interaction with proper error handling."""
     if not msg.strip():
-        yield history or [], history or [], steps or []
+        yield history or [], history or [], steps or [], gr.Update()
         return
 
     history = history or []
     steps = steps or []
     steps.clear()
 
-    if live_log_markdown is not None:
-        live_log_markdown.value = ""
-        live_log_markdown.visible = True
+    live_update = gr.update(value="", visible=bool(reveal))
 
     history.append({"role": "user", "content": msg})
 
@@ -226,18 +245,24 @@ async def chat_fn(
     try:
         async for tok in handle_query_stream(msg):
             if tok.startswith("§STEP§"):
-                steps.append(tok[7:])
-                if live_log_markdown is not None:
-                    live_log_markdown.value = "\n".join(
-                        f"**{i}.** {s}" for i, s in enumerate(steps, 1)
-                    )
+                try:
+                    step_data = json.loads(tok[7:])
+                except Exception:
+                    step_data = tok[7:]
+                steps.append(step_data)
+                live_update = gr.update(
+                    value=format_intermediate_steps(steps),
+                    visible=True,
+                )
                 await asyncio.sleep(0)
+                # průběžný render do odděleného panelu
+                yield limit_history(history), limit_history(history), steps, live_update
                 continue
 
             bot["content"] += tok
             # Limit history to prevent memory issues
             current_history = limit_history(history)
-            yield current_history, current_history, steps
+            yield current_history, current_history, steps, (live_log_markdown or gr.Markdown(""))
 
         # Parse final response
         try:
@@ -246,8 +271,10 @@ async def chat_fn(
             bot["content"] = parsed.answer
 
             if reveal and parsed.intermediate_steps:
-                formatted_steps = format_intermediate_steps(parsed.intermediate_steps)
-                bot["content"] += f"\n\n**🔍 Intermediate steps:**\n{formatted_steps}"
+                live_update = gr.update(
+                    value=format_intermediate_steps(parsed.intermediate_steps),
+                    visible=True,
+                )
         except Exception as e:
             logger.error(f"Error parsing response: {e}")
             # Keep the raw content if parsing fails
@@ -259,12 +286,11 @@ async def chat_fn(
 
     final_history = limit_history(history)
 
-    if not reveal and live_log_markdown is not None:
-        live_log_markdown.value = ""
-        live_log_markdown.visible = False
+    if not reveal:
+        live_update = gr.update(value="", visible=False)
         steps.clear()
 
-    yield final_history, final_history, steps
+    yield final_history, final_history, steps, live_update
 
 
 def file_selected(fname: Optional[str]) -> Tuple[str, gr.File, str]:
@@ -357,6 +383,7 @@ def launch() -> None:
     }
     .input-row textarea {
         width: 100%;
+        min-height: 120px;
     }
     """
 
@@ -425,7 +452,7 @@ def launch() -> None:
 
                 with gr.Row(elem_classes=["input-row"]):
                     msg = gr.Textbox(
-                        lines=2,
+                        lines=5,
                         scale=6,
                         placeholder="Zadejte svůj dotaz zde... (Shift+Enter pro odeslání)",
                         label="Váš dotaz",
@@ -454,13 +481,16 @@ def launch() -> None:
                 with gr.Row():
                     reveal = gr.Checkbox(
                         label="🔍 Zobrazit kroky zpracování",
-                        info="Ukáže detaily o tom, jak agent zpracovával váš dotaz",
+                        value = True,
+                        info="Oddělený panel s průběhem (nástroje, argumenty, výsledky)",
                     )
 
             with gr.Column(scale=2):
                 gr.Markdown("### 📁 Výstupní soubory")
 
-                live_log_markdown = gr.Markdown("", label="Živý log")
+                with gr.Group(visible=True) as steps_group:
+                    with gr.Accordion("🔎 Kroky zpracování", open=True):
+                        live_log_markdown = gr.Markdown("", elem_id="intermediate-steps")
                 steps_state = gr.State([])
 
                 files = gr.Dropdown(
@@ -495,13 +525,13 @@ def launch() -> None:
         msg_submit = msg.submit(
             chat_cb,
             inputs=[msg, chatbot, reveal, steps_state],
-            outputs=[chatbot, chatbot, steps_state],
+            outputs=[chatbot, chatbot, steps_state, live_log_markdown],
         ).then(lambda: "", outputs=[msg])
 
         submit_btn.click(
             chat_cb,
             inputs=[msg, chatbot, reveal, steps_state],
-            outputs=[chatbot, chatbot, steps_state],
+            outputs=[chatbot, chatbot, steps_state, live_log_markdown],
         ).then(lambda: "", outputs=[msg])
 
         mic_btn.click(show_mic, outputs=[audio_input, audio_status])
@@ -522,6 +552,9 @@ def launch() -> None:
         clear_btn.click(clear_chat, outputs=[chatbot, msg]).then(
             lambda: [], outputs=[steps_state]
         ).then(lambda: gr.update(value="", visible=False), outputs=[live_log_markdown])
+
+        # Toggle panelu kroků podle checkboxu
+        reveal.change(lambda v: gr.update(visible=bool(v)), inputs=[reveal], outputs=[steps_group])
 
         # File interactions
         files.change(

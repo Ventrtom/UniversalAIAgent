@@ -210,9 +210,6 @@ _short_term_memory.chat_memory = FileChatMessageHistory(
     file_path=str(_persistent_history_file)
 )
 
-_short_term_memory.chat_memory = FileChatMessageHistory(
-    file_path=_persistent_history_file
-)
 
 QUERY_TIME_THRESHOLD = int(os.getenv("QUERY_TIME_THRESHOLD", 120))
 MAX_CHAT_RECORDS = int(os.getenv("MAX_CHAT_RECORDS", 10_000))
@@ -419,7 +416,10 @@ class AgentState(TypedDict):
 def _is_information_query(query: str) -> bool:
     """Heuristic check whether the query is a standalone information request."""
     q = query.lower().strip()
-    info_words = ("what", "why", "how", "where", "when", "who")
+    info_words = (
+        "what","why","how","where","when","who",
+        "co","proč","jak","kde","kdy","kdo","které","kolik","lze","může"
+    )
     return any(q.startswith(w) for w in info_words) or "?" in q
 
 
@@ -482,11 +482,12 @@ async def act(state: AgentState) -> AgentState:
         try:
             parsed = ResearchResponse.parse_raw(raw)
             state["answer"] = parsed.answer
-            state["intermediate_steps"] = parsed.intermediate_steps
+            state["intermediate_steps"] = parsed.intermediate_steps or result.get("intermediate_steps", [])
         except Exception as e:
             state["answer"] = f"⚠️ LLM nevrátil validní JSON: {e}\\n{result['output']}"
 
-        state["intermediate_steps"] = result.get("intermediate_steps", [])
+        if not state.get("intermediate_steps"):
+            state["intermediate_steps"] = result.get("intermediate_steps", [])
     except Exception as e:  # ← pojistka, kdyby přece jen něco propadlo
         err = f"⚠️ Nástroj selhal: {e}"
         state["answer"] = err
@@ -534,13 +535,13 @@ async def learn(state: AgentState) -> AgentState:
             records.sort(key=lambda r: r[2].get("ts", ""))
             last = records[-500:]
             text = "\n".join(doc for _, doc, _ in last)
-            summary = await _llm.ainvoke(
+            summary_msg = await _llm.ainvoke(
                 f"Summarise following 500 lines of chat history:\n{text}"
             )
             _chat_store.add_documents(
                 [
                     Document(
-                        page_content=summary,
+                        page_content=(getattr(summary_msg, "content", str(summary_msg)) or ""),
                         metadata={"role": "summary", "ts": ts, "source": "chat"},
                     )
                 ]
@@ -623,10 +624,10 @@ def handle_query(query: str) -> str:
     _update_last_user_ts()
     return result
 
-
 # -------- STREAMING (yielduje JSON lines) ------------------------------------
 async def handle_query_stream(query: str):
     """Streamuje výstup *celého* grafu na jeden běh (žádné zdvojení tokenů)."""
+    _tool_times = {}
 
     final_state = None
 
@@ -644,11 +645,6 @@ async def handle_query_stream(query: str):
 
         # --- Průběžné streamování tokenů LLM ---
         if event_type == "on_llm_new_token":
-            data = _ev_attr(ev, "data", {})
-            token = (
-                data["token"] if isinstance(data, dict) else getattr(data, "token", "")
-            )
-            yield token
             continue
 
         # --- Streamování informací o běhu nástrojů ---
@@ -674,6 +670,7 @@ async def handle_query_stream(query: str):
                 or _ev_attr(data, "output")
                 or ""
             )
+            _tool_times[tool] = time.perf_counter()
 
             _short = (
                 json.dumps(tool_input)
@@ -694,6 +691,18 @@ async def handle_query_stream(query: str):
                 final_state = ds.get("output") or ds.get("state")
             else:
                 final_state = getattr(ds, "output", None) or getattr(ds, "state", None)
+
+        elif event_type == "on_tool_end":
+            start = _tool_times.pop(tool, None)
+            duration = round(time.perf_counter() - start, 2) if start else None
+            payload = {
+                "tool": tool,
+                "tool_input": tool_input,
+                "result": _ev_attr(data, "output") or "",
+                "duration": duration
+            }
+            yield f"§STEP§{json.dumps(payload, ensure_ascii=False)}"
+            continue
 
     if final_state is None:
         final_state = await workflow.ainvoke(

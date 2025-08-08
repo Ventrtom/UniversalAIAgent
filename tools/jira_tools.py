@@ -459,9 +459,6 @@ jira_child_issues = StructuredTool.from_function(
 )
 
 # ───────────────────── JIRA Issue-Links Explorer ────────────────────────
-from typing import List               # pokud už máte, tento import můžete smazat
-from pydantic import BaseModel, Field
-from langchain.tools import StructuredTool
 
 class IssueLinksInput(BaseModel):
     """Vypíše všechny vazby (issue links) k danému Jira issue."""
