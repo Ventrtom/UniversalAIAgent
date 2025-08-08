@@ -198,11 +198,27 @@ def format_intermediate_steps(steps: List[Any]) -> str:
 
         # Map common tools to friendlier verbs
         verb_map = {
-            "jira_issue_detail": "Načtení detailu úkolu v JIRA",
-            "jira_ideas": "Prohledání nápadů v JIRA",
-            "searchWeb": "Hledání informací na webu",
-            "rag_retriever": "Vyhledání informací v uložené znalostní bázi",
-            "tavily_search": "Hledání externích zdrojů",
+            "jira_issue_detail": "Načte detail úkolu v JIRA a ukáže stav, popis i komentáře.",
+            "jira_ideas": "Vyhledá nápady v backlogu JIRA a vypíše je přehledně.",
+            "jira_ideas_retriever": "Vyhledá nápady v backlogu JIRA a vypíše je přehledně.",
+            "jira_duplicate_idea_checker": "Porovná nový nápad s existujícími v JIRA a upozorní na duplicity.",
+            "jira_update_description": "Porovná a po potvrzení aktualizuje popis úkolu v JIRA.",
+            "jira_child_issues": "Vypíše všechny podřízené úkoly vybraného JIRA issue.",
+            "jira_issue_links": "Zobrazí vazby a související úkoly k danému issue.",
+            "enhance_idea": "Převede hrubý nápad na strukturovaný tiket typu Idea.",
+            "epic_from_idea": "Rozšíří nápad na návrh Epicu se všemi potřebnými sekcemi.",
+            "user_stories_for_epic": "Vygeneruje seznam user stories navázaných na vybraný Epic.",
+            "searchWeb": "Vyhledá obecné informace na webu pomocí DuckDuckGo.",
+            "wikipedia_query": "Získá krátké shrnutí z Wikipedie.",
+            "tavily_search": "Hledá relevantní články na webu přes službu Tavily.",
+            "rag_retriever": "Najde odpovědi v interní znalostní bázi.",
+            "save_text_to_file": "Uloží zadaný text do souboru pro pozdější použití.",
+            "list_output_files": "Vypíše názvy dostupných souborů v úložišti.",
+            "read_output_file": "Načte obsah zvoleného souboru.",
+            "process_input_files": "Naimportuje nové soubory a přidá je do znalostní báze.",
+            "kb_loader": "Synchronizuje znalostní bázi s Confluence nebo místními soubory.",
+            "clear_rag_memory": "Vymaže vybranou část uložené paměti.",
+            "self_inspection": "Shrne schopnosti a omezení agenta.",
         }
         action = verb_map.get(tool, f"Použití nástroje {tool}")
 
